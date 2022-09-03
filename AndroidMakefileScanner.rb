@@ -31,7 +31,7 @@ end
 
 class AndroidMkParser
 	DEF_OUTPUT_IDENTIFIER=Regexp.compile("LOCAL_MODULE *:=")
-	DEF_INCLUDE_IDENTIFIER=Regexp.compile("LOCAL_C_INCLUDES *:=")
+	DEF_INCLUDE_IDENTIFIER=Regexp.compile("LOCAL_C_INCLUDES *(\\+|:)=")
 
 	def getValueFromLine(aLine, identifier)
 		result = nil
@@ -45,13 +45,20 @@ class AndroidMkParser
 	end
 
 	def parseMakefile(makefileBody)
+		theLine = ""
 		makefileBody.each do |aLine|
 			aLine.strip!
-			val = getValueFromLine( aLine, DEF_INCLUDE_IDENTIFIER )
-			@nativeIncludes << val if val
+			theLine = "#{theLine} #{aLine}"
+			if !aLine.end_with?("\\") then
+				val = getValueFromLine( theLine, DEF_INCLUDE_IDENTIFIER )
+				val = val.to_s.split("\\").map(&:strip!)
+				@nativeIncludes.concat( val ) if !val.empty?
 
-			val = getValueFromLine( aLine, DEF_OUTPUT_IDENTIFIER )
-			@builtOuts << val if val
+				val = getValueFromLine( theLine, DEF_OUTPUT_IDENTIFIER )
+				@builtOuts << val if val
+
+				theLine = ""
+			end
 		end
 	end
 
