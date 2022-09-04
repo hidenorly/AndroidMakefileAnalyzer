@@ -30,19 +30,35 @@ class AndroidUtil
 end
 
 class AndroidMkParser
-	DEF_OUTPUT_IDENTIFIER=Regexp.compile("LOCAL_MODULE *:=")
-	DEF_INCLUDE_IDENTIFIER=Regexp.compile("LOCAL_C_INCLUDES *(\\+|:)=")
 
-	def getValueFromLine(aLine, identifier)
-		result = nil
-		if aLine.match(identifier) then
-			pos = aLine.index("=")
-			if pos then
-				result = aLine.slice(pos+1, aLine.length).strip
+	def getKeyValueFromLine(aLine)
+		key = nil
+		value = nil
+		pos = aLine.index("=")
+		if pos then
+			value = aLine.slice(pos+1, aLine.length).strip
+
+			key = aLine.slice(0, pos).strip
+			key = key.slice(0, key.length-1).strip if key.end_with?(":")
+			if key.end_with?("+") then
+				key = key.slice(0, key.length-1).strip
+				value = @env.has_key?(key) ? "#{@env[key]} \\ #{value}" : value
 			end
 		end
-		return result
+		return key, value
 	end
+
+	def envEnsure(value)
+		@env.each do |key, replaceValue|
+			replaceKey = "\$\(#{key}\)"
+			value = value.to_s.gsub(replaceKey, replaceValue.to_s )
+		end
+
+		return value
+	end
+
+	DEF_OUTPUT_IDENTIFIER="LOCAL_MODULE" #Regexp.compile("LOCAL_MODULE *:=")
+	DEF_INCLUDE_IDENTIFIER="LOCAL_C_INCLUDES" #Regexp.compile("LOCAL_C_INCLUDES *(\\+|:)=")
 
 	def parseMakefile(makefileBody)
 		theLine = ""
@@ -50,12 +66,25 @@ class AndroidMkParser
 			aLine.strip!
 			theLine = "#{theLine} #{aLine}"
 			if !aLine.end_with?("\\") then
-				val = getValueFromLine( theLine, DEF_INCLUDE_IDENTIFIER )
-				val = val.to_s.split("\\").map(&:strip!)
-				@nativeIncludes.concat( val ) if !val.empty?
+				key, value = getKeyValueFromLine( theLine )
+				if key and value then
+					value = envEnsure(value) if @envFlatten
+					@env[key] = value 
+				end
 
-				val = getValueFromLine( theLine, DEF_OUTPUT_IDENTIFIER )
-				@builtOuts << val if val
+				if value then
+					case key
+					when DEF_INCLUDE_IDENTIFIER
+						val = value.to_s.split("\\").map(&:strip!)
+						val.each do |aVal|
+							@nativeIncludes << aVal if aVal
+						end
+						@nativeIncludes.uniq!
+					when DEF_OUTPUT_IDENTIFIER
+						@builtOuts << value if value
+					else
+					end
+				end
 
 				theLine = ""
 			end
@@ -71,9 +100,12 @@ class AndroidMkParser
 		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*(STATIC|SHARED)_LIBRARIES")
 	]
 
-	def initialize(makefilePath)
+	def initialize(makefilePath, envFlatten)
 		@makefilePath = makefilePath
+		@envFlatten = envFlatten
+
 		@isNativeLib = false
+		@env = {}
 		@nativeIncludes = []
 		@builtOuts = []
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
@@ -97,6 +129,7 @@ end
 #---- main --------------------------
 options = {
 	:verbose => false,
+	:envFlatten => false,
 }
 
 opt_parser = OptionParser.new do |opts|
@@ -109,6 +142,10 @@ opt_parser = OptionParser.new do |opts|
 		when "csv"
 			reporter = CsvReporter
 		end
+	end
+
+	opts.on("-e", "--envFlatten", "Enable env value flatten") do
+		options[:envFlatten] = true
 	end
 
 	opts.on("-v", "--verbose", "Enable verbose status output") do
@@ -132,7 +169,7 @@ puts makefilePaths if options[:verbose]
 
 result = []
 makefilePaths.each do | aMakefilePath |
-	aParser = AndroidMkParser.new( aMakefilePath )
+	aParser = AndroidMkParser.new( aMakefilePath, options[:envFlatten] )
 	result << aParser if aParser.isNativeLib()
 end
 
