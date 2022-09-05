@@ -106,6 +106,7 @@ class AndroidMkParser
 
 		@isNativeLib = false
 		@env = {}
+		@env["call my-dir"] = FileUtil.getDirectoryFromPath(@makefilePath)
 		@nativeIncludes = []
 		@builtOuts = []
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
