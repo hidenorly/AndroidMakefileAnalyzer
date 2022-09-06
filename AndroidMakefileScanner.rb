@@ -30,7 +30,6 @@ class AndroidUtil
 end
 
 class AndroidMkParser
-
 	def getKeyValueFromLine(aLine)
 		key = nil
 		value = nil
@@ -48,11 +47,42 @@ class AndroidMkParser
 		return key, value
 	end
 
+	# only no nest case
+	DEF_SUBST="$(subst "
+	def _subst(value)
+		pos = value.index(DEF_SUBST)
+		while pos
+			val1 = value.slice(pos+DEF_SUBST.length, value.length)
+			pos2 = val1.index(",")
+			if pos2 then
+				val2 = val1.slice(pos2+1, val1.length-pos2)
+				val1 = val1.slice(0, pos2)
+				pos3 = val2.index(",")
+				if pos3 then
+					pos4 = val2.index(")", pos3+1)
+					if pos4 then
+						val3 = val2.slice(pos3+1, pos4-pos3-1)
+						val2 = val2.slice(0, pos3)
+						# now we have val1,2,3!
+						replacedVal = val1.gsub( val2, val3 )
+						pos5 = value.index(val3, pos+1)
+						pos5 = value.index(")", pos5)
+						value = value.slice(0, pos)+replacedVal+value.slice(pos5+1, value.length-pos5)
+					end
+				end
+			end
+			pos = value.index(DEF_SUBST)
+		end
+		return value
+	end
+
 	def envEnsure(value)
 		@env.each do |key, replaceValue|
 			replaceKey = "\$\(#{key}\)"
 			value = value.to_s.gsub(replaceKey, replaceValue.to_s )
 		end
+
+		value = _subst(value)
 
 		return value
 	end
