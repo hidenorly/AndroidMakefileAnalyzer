@@ -29,7 +29,24 @@ class AndroidUtil
 	end
 end
 
-class AndroidMkParser
+class AndrroidMakefileParser
+	def initialize(makefilePath, envFlatten)
+		@makefilePath = makefilePath
+		@envFlatten = envFlatten
+		@isNativeLib = false
+	end
+
+	def isNativeLib
+		return @isNativeLib
+	end
+
+	def dump
+		return ""
+	end
+end
+
+
+class AndroidMkParser < AndrroidMakefileParser
 	def getKeyValueFromLine(aLine)
 		key = nil
 		value = nil
@@ -121,20 +138,14 @@ class AndroidMkParser
 		end
 	end
 
-	def isNativeLib
-		return @isNativeLib
-	end
-
 	DEF_NATIVE_LIB_IDENTIFIER=[
 		Regexp.compile("\(BUILD_(STATIC|SHARED)_LIBRARY\)"),
 		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*(STATIC|SHARED)_LIBRARIES")
 	]
 
 	def initialize(makefilePath, envFlatten)
-		@makefilePath = makefilePath
-		@envFlatten = envFlatten
+		super(makefilePath, envFlatten)
 
-		@isNativeLib = false
 		@env = {}
 		@env["call my-dir"] = FileUtil.getDirectoryFromPath(@makefilePath)
 		@nativeIncludes = []
@@ -184,18 +195,27 @@ opt_parser = OptionParser.new do |opts|
 	end
 end.parse!
 
-if (ARGV.length < 1) then
+makefilePaths = []
+
+
+if ARGV.length < 1 then
 	puts opt_parser
 	exit(-1)
 else
 	# check path
-	if ( !FileTest.directory?(ARGV[0]) ) then
+	isFile = FileTest.file?(ARGV[0])
+	isDirectory = FileTest.directory?(ARGV[0])
+	if !isFile && !isDirectory  then
 		puts ARGV[0] + " is not found"
 		exit(-1)
 	end
+	if isFile then
+		makefilePaths = [ ARGV[0] ]
+	elsif isDirectory then
+		makefilePaths = AndroidUtil.getListOfAndroidMakefile( ARGV[0] )
+	end
 end
 
-makefilePaths = AndroidUtil.getListOfAndroidMakefile( ARGV[0] )
 puts makefilePaths if options[:verbose]
 
 result = []
