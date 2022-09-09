@@ -18,6 +18,7 @@ require 'fileutils'
 require 'optparse'
 require 'shellwords'
 require_relative "FileUtil"
+require_relative "StrUtil"
 
 class AndroidUtil
 	DEF_ANDROID_MAKEFILES = [
@@ -64,8 +65,32 @@ class AndroidMkParser < AndrroidMakefileParser
 		return key, value
 	end
 
-	# only no nest case
-	DEF_SUBST="$(subst "
+	DEF_SUBST_INNER="subst "
+	DEF_SUBST="$(#{DEF_SUBST_INNER}"
+	def _subst(value)
+		pos = value.index(DEF_SUBST)
+		if pos then
+			substWords = StrUtil.getBlacket( value, "(", ")", pos)
+			posEnd = value.index(substWords) + substWords.length + 2
+			if substWords.index(DEF_SUBST) then
+				substWords = _subst( substWords )
+			end
+			pos1 = substWords.index(DEF_SUBST_INNER)
+			if pos1 then
+				substArgs = substWords.slice(pos1+DEF_SUBST_INNER.length, substWords.length).strip.split(",")
+				if substArgs.length == 3 then
+					target = substArgs[0].strip
+					replaceKey = substArgs[1].strip
+					replaceVal = substArgs[1].strip
+					value = value.slice(0, pos).to_s + target.gsub( replaceKey, replaceVal ).to_s + value.slice(posEnd, value.length).to_s
+				end
+			end
+		end
+
+		return value
+	end
+
+=begin
 	def _subst(value)
 		pos = value.index(DEF_SUBST)
 		while pos
@@ -91,6 +116,13 @@ class AndroidMkParser < AndrroidMakefileParser
 			pos = value.index(DEF_SUBST)
 		end
 		return value
+	end
+=end
+
+	def _envEnsure
+		@env.clone.each do |key, val|
+			@env[key] = envEnsure(val)
+		end
 	end
 
 	def envEnsure(value)
@@ -136,6 +168,7 @@ class AndroidMkParser < AndrroidMakefileParser
 				theLine = ""
 			end
 		end
+		_envEnsure()
 	end
 
 	DEF_NATIVE_LIB_IDENTIFIER=[
@@ -196,7 +229,6 @@ opt_parser = OptionParser.new do |opts|
 end.parse!
 
 makefilePaths = []
-
 
 if ARGV.length < 1 then
 	puts opt_parser
