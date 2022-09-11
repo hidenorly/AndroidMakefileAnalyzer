@@ -166,8 +166,239 @@ class AndroidMkParser < AndroidMakefileParser
 		parseMakefile(makefileBody) if @isNativeLib
 	end
 
+	def getResult
+		result = {}
+		result["libName"] = FileUtil.getFilenameFromPathWithoutExt(@builtOuts.to_a[0])
+		result["version"] = ""
+		result["headers"] = @nativeIncludes
+		result["libs"] = @builtOuts
+		return result
+	end
+
 	def dump
 		return "path:#{@makefilePath}, nativeLib:#{@isNativeLib ? "true" : "false"}, builtOuts:#{@builtOuts.to_s}, includes:#{@nativeIncludes.to_s}"
+	end
+end
+
+
+class Reporter
+	def self.titleOut(title)
+		puts title
+	end
+
+	def self._getMaxLengthData(data)
+		result = !data.empty? ? data[0] : {}
+
+		data.each do |aData|
+			result = aData if aData.kind_of?(Enumerable) && aData.to_a.length > result.to_a.length
+		end
+
+		return result
+	end
+
+	def self._ensureFilteredHash(data, outputSections)
+		result = data
+
+		if outputSections then
+			result = {}
+
+			outputSections.each do |aKey|
+				found = false
+				data.each do |theKey, theVal|
+					if theKey.to_s.strip.start_with?(aKey) then
+						result[aKey] = theVal
+						found = true
+						break
+					end
+				end
+				result[aKey] = nil if !found
+			end
+		end
+
+		return result
+	end
+
+	def self.report(data, outputSections=nil)
+		outputSections = outputSections ? outputSections.split("|") : nil
+
+		if data.length then
+			keys = _getMaxLengthData(data) #data[0]
+			if keys.kind_of?(Hash) then
+				keys = _ensureFilteredHash(keys, outputSections)
+				_conv(keys, true, false, true)
+			elsif outputSections then
+				_conv(outputSections, true, false, true)
+			end
+
+			data.each do |aData|
+				aData = _ensureFilteredHash(aData, outputSections) if aData.kind_of?(Hash)
+				_conv(aData)
+			end
+		end
+	end
+
+	def self._conv(aData, keyOutput=false, valOutput=true, firstLine=false)
+		puts aData
+	end
+end
+
+class MarkdownReporter < Reporter
+	def self.titleOut(title)
+		puts "\# #{title}"
+		puts ""
+	end
+
+	def self.reportFilter(aLine)
+		if aLine.kind_of?(Array) then
+			tmp = ""
+			aLine.each do |aVal|
+				tmp = "#{tmp}#{!tmp.empty? ? " <br> " : ""}#{aVal}"
+			end
+			aLine = tmp
+		elsif aLine.is_a?(String) then
+			aLine = "[#{FileUtil.getFilenameFromPath(aLine)}](#{aLine})" if aLine.start_with?("http://")
+		end
+
+		return aLine
+	end
+
+	def self._conv(aData, keyOutput=false, valOutput=true, firstLine=false)
+		separator = "|"
+		aLine = separator
+		count = 0
+		if aData.kind_of?(Enumerable) then
+			if aData.kind_of?(Hash) then
+				aData.each do |aKey,theVal|
+					aLine = "#{aLine} #{aKey} #{separator}" if keyOutput
+					aLine = "#{aLine} #{reportFilter(theVal)} #{separator}" if valOutput
+					count = count + 1
+				end
+			elsif aData.kind_of?(Array) then
+				aData.each do |theVal|
+					aLine = "#{aLine} #{reportFilter(theVal)} #{separator}" if valOutput
+					count = count + 1
+				end
+			end
+			puts aLine
+			if firstLine && count then
+				aLine = "|"
+				for i in 1..count do
+					aLine = "#{aLine} :--- |"
+				end
+				puts aLine
+			end
+		else
+			puts "#{separator} #{reportFilter(aData)} #{separator}"
+		end
+	end
+end
+
+class CsvReporter < Reporter
+	def self.titleOut(title)
+		puts ""
+	end
+
+	def self.reportFilter(aLine)
+		if aLine.kind_of?(Array) then
+			tmp = ""
+			aLine.each do |aVal|
+				tmp = "#{tmp}#{!tmp.empty? ? "|" : ""}#{aVal}"
+			end
+			aLine = tmp
+		elsif aLine.is_a?(String) then
+			aLine = "[#{FileUtil.getFilenameFromPath(aLine)}](#{aLine})" if aLine.start_with?("http://")
+		end
+
+		return aLine
+	end
+
+	def self._conv(aData, keyOutput=false, valOutput=true, firstLine=false)
+		aLine = ""
+		if aData.kind_of?(Enumerable) then
+			if aData.kind_of?(Hash) then
+				aData.each do |aKey,theVal|
+					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{aKey}" if keyOutput
+					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{reportFilter(theVal)}" if valOutput
+				end
+			elsif aData.kind_of?(Array) then
+				aData.each do |theVal|
+					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{reportFilter(theVal)}" if valOutput
+				end
+			end
+			puts aLine
+		else
+			puts "#{reportFilter(aData)}"
+		end
+	end
+end
+
+class XmlReporter < Reporter
+	def self.titleOut(title)
+		puts "<!-- #{title} --/>"
+		puts ""
+	end
+
+	def self.reportFilter(aLine)
+		if aLine.kind_of?(Array) then
+			tmp = ""
+			aLine.each do |aVal|
+				tmp = "#{tmp}#{!tmp.empty? ? "\n" : ""}#{aVal}"
+			end
+			aLine = tmp
+		elsif aLine.is_a?(String) then
+			aLine = "[#{FileUtil.getFilenameFromPath(aLine)}](#{aLine})" if aLine.start_with?("http://")
+		end
+
+		return aLine
+	end
+
+	def self.report(data, outputSections=nil)
+		outputSections = outputSections ? outputSections.split("|") : nil
+
+		data.each do |aData|
+			aData = _ensureFilteredHash(aData, outputSections) if aData.kind_of?(Hash)
+			libName = aData.has_key?("libName") ? aData["libName"] : ""
+			aData.delete("libName")
+			puts "<library name=\"#{libName}\">"
+			_subReport(aData, 4)
+			puts "</library>"
+		end
+	end
+
+	def self._subReport(aData, baseIndent=4, keyOutput=true, valOutput=true, firstLine=false)
+		separator = "\n"
+		aData.each do |aKey,theVal|
+			aLine = ""
+			puts "#{" "*baseIndent}<#{aKey}>"
+			indent = baseIndent + 4
+			# TODO: do as recursive
+			if theVal.kind_of?(Enumerable) then
+				if theVal.kind_of?(Hash) then
+					theVal.each do |aSubKey,theSubVal|
+						aVal = reportFilter(theSubVal)
+						if aVal && !aVal.empty? then
+							aLine = "#{" "*indent}<#{aSubKey}>#{separator}" if keyOutput
+							aLine = "#{aLine}#{" "*(indent+4)}#{aVal}#{separator}" if valOutput
+							aLine = "#{aLine}#{" "*indent}</#{aSubKey}>#{separator}" if keyOutput
+						end
+					end
+				elsif theVal.kind_of?(Array) then
+					theVal.each do |theVal|
+						aVal = reportFilter(theVal)
+						if aVal && !aVal.empty? then
+							aLine = "#{aLine}#{" "*indent}#{aVal}#{separator}" if valOutput
+						end
+					end
+				end
+				puts aLine
+			else
+				aVal = reportFilter(theVal)
+				if aVal && !aVal.empty? then
+					puts "#{" "*indent}#{aVal}"
+				end
+			end
+			puts "#{" "*baseIndent}</#{aKey}>"
+		end
 	end
 end
 
@@ -176,17 +407,22 @@ end
 options = {
 	:verbose => false,
 	:envFlatten => false,
+	:reportFormat => "xml",
 }
+
+reporter = XmlReporter
 
 opt_parser = OptionParser.new do |opts|
 	opts.banner = "Usage: usage ANDROID_HOME"
 
-	opts.on("-r", "--reportFormat=", "Specify report format markdown|csv|ruby (default:markdown)") do |reportFormat|
+	opts.on("-r", "--reportFormat=", "Specify report format markdown|csv|xml (default:#{options[:reportFormat]})") do |reportFormat|
 		case reportFormat.to_s.downcase
-		when "ruby"
-			reporter = Reporter
+		when "markdown"
+			reporter = MarkdownReporter
 		when "csv"
 			reporter = CsvReporter
+		when "xml"
+			reporter = XmlReporter
 		end
 	end
 
@@ -224,9 +460,7 @@ puts makefilePaths if options[:verbose]
 result = []
 makefilePaths.each do | aMakefilePath |
 	aParser = AndroidMkParser.new( aMakefilePath, options[:envFlatten] )
-	result << aParser if aParser.isNativeLib()
+	result << aParser.getResult() if aParser.isNativeLib()
 end
 
-result.each do |aNativeLib|
-	puts aNativeLib.dump()
-end
+reporter.report( result, "libName|version|headers|libs" )
