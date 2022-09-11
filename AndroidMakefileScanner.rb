@@ -30,7 +30,7 @@ class AndroidUtil
 	end
 end
 
-class AndrroidMakefileParser
+class AndroidMakefileParser
 	def initialize(makefilePath, envFlatten)
 		@makefilePath = makefilePath
 		@envFlatten = envFlatten
@@ -47,7 +47,7 @@ class AndrroidMakefileParser
 end
 
 
-class AndroidMkParser < AndrroidMakefileParser
+class AndroidMkParser < AndroidMakefileParser
 	def getKeyValueFromLine(aLine)
 		key = nil
 		value = nil
