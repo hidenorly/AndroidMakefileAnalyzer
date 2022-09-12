@@ -365,25 +365,42 @@ class XmlReporter < Reporter
 		end
 	end
 
+	def self._isEnumerable(theData)
+		result = false
+		theData.each do |aData|
+			if aData.kind_of?(Enumerable) then
+				result = true
+				break
+			end
+		end
+		return result
+	end
+
 	def self._subReport(aData, baseIndent=4, keyOutput=true, valOutput=true, firstLine=false)
 		separator = "\n"
-		aData.each do |aKey,theVal|
-			aLine = ""
-			puts "#{" "*baseIndent}<#{aKey}>"
+		if aData.kind_of?(Enumerable) then
 			indent = baseIndent + 4
-			# TODO: do as recursive
-			if theVal.kind_of?(Enumerable) then
-				if theVal.kind_of?(Hash) then
-					theVal.each do |aSubKey,theSubVal|
-						aVal = reportFilter(theSubVal)
+			if aData.kind_of?(Hash) then
+				aData.each do |aKey,theVal|
+					puts "#{" "*baseIndent}<#{aKey}>"
+					if theVal.kind_of?(Enumerable) then
+						_subReport(theVal, indent)
+					else
+						aVal = reportFilter(theVal)
 						if aVal && !aVal.empty? then
-							aLine = "#{" "*indent}<#{aSubKey}>#{separator}" if keyOutput
-							aLine = "#{aLine}#{" "*(indent+4)}#{aVal}#{separator}" if valOutput
-							aLine = "#{aLine}#{" "*indent}</#{aSubKey}>#{separator}" if keyOutput
+							puts "#{" "*indent}#{aVal}"
 						end
 					end
-				elsif theVal.kind_of?(Array) then
-					theVal.each do |theVal|
+					puts "#{" "*baseIndent}</#{aKey}>"
+				end
+			elsif aData.kind_of?(Array) then
+				isEnumerable = _isEnumerable(aData)
+				puts "#{" "*baseIndent}<data>" if isEnumerable
+				aLine = ""
+				aData.each do |theVal|
+					if theVal.kind_of?(Enumerable) then
+						_subReport(theVal, indent)
+					else
 						aVal = reportFilter(theVal)
 						if aVal && !aVal.empty? then
 							aLine = "#{aLine}#{" "*indent}#{aVal}#{separator}" if valOutput
@@ -391,13 +408,18 @@ class XmlReporter < Reporter
 					end
 				end
 				puts aLine
+				puts "#{" "*baseIndent}</data>" if isEnumerable
 			else
-				aVal = reportFilter(theVal)
+				aVal = reportFilter(aData)
 				if aVal && !aVal.empty? then
 					puts "#{" "*indent}#{aVal}"
 				end
 			end
-			puts "#{" "*baseIndent}</#{aKey}>"
+		else
+			aVal = reportFilter(aData)
+			if aVal && !aVal.empty? then
+				puts "#{" "*indent}#{aVal}"
+			end
 		end
 	end
 end
