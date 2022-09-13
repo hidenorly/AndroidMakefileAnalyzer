@@ -354,14 +354,22 @@ class XmlReporter < Reporter
 
 	def self.report(data, outputSections=nil)
 		outputSections = outputSections ? outputSections.split("|") : nil
+		mainKey = nil
+		if outputSections then
+			mainKey = outputSections[0]
+		end
 
 		data.each do |aData|
 			aData = _ensureFilteredHash(aData, outputSections) if aData.kind_of?(Hash)
-			libName = aData.has_key?("libName") ? aData["libName"] : ""
-			aData.delete("libName")
-			puts "<library name=\"#{libName}\">"
-			_subReport(aData, 4)
-			puts "</library>"
+			if mainKey then
+				mainVal = aData.has_key?(mainKey) ? aData[mainKey] : ""
+				aData.delete(mainKey)
+				puts "<#{mainKey} #{mainVal ? "value=\"#{mainVal}\"" : ""}>"
+				_subReport(aData, 4)
+				puts "</#{mainKey}>"
+			else
+				_subReport(aData, 0)
+			end
 		end
 	end
 
