@@ -17,8 +17,9 @@
 require 'fileutils'
 require 'optparse'
 require 'shellwords'
-require_relative "FileUtil"
-require_relative "StrUtil"
+require 'json'
+require_relative 'FileUtil'
+require_relative 'StrUtil'
 
 class AndroidUtil
 	DEF_ANDROID_MAKEFILES = [
@@ -160,10 +161,98 @@ class AndroidMkParser < AndroidMakefileParser
 			if !result.empty? then
 				# found native lib
 				@isNativeLib = true
-				#break
+				break
 			end
 		end
 		parseMakefile(makefileBody) if @isNativeLib
+	end
+
+	def getResult
+		result = {}
+		result["libName"] = FileUtil.getFilenameFromPathWithoutExt(@builtOuts.to_a[0])
+		result["version"] = ""
+		result["headers"] = @nativeIncludes
+		result["libs"] = @builtOuts
+		return result
+	end
+
+	def dump
+		return "path:#{@makefilePath}, nativeLib:#{@isNativeLib ? "true" : "false"}, builtOuts:#{@builtOuts.to_s}, includes:#{@nativeIncludes.to_s}"
+	end
+end
+
+
+
+class AndroidBpParser < AndroidMakefileParser
+	DEF_NATIVE_LIB_IDENTIFIER=[
+		"cc_library",
+		"cc_library_shared",
+		"cc_library_static"
+	]
+
+	DEF_LIB_NAME = "name"
+	DEF_INCLUDE_DIRS = [
+		"export_include_dirs",
+		"header_libs",
+		"export_header_lib_headers"
+	]
+
+	def ensureJson(body)
+		return "{ #{body} }".gsub(/(\w+)\s*:/, '"\1":').gsub(/,(?= *\])/, '').gsub(/,(?= *\})/, '')
+	end
+
+	def removeRemark(makefileBody)
+		result = []
+		makefileBody.each do | aLine |
+			pos = aLine.index("//")
+			if pos then
+				aLine = aLine.slice(0,pos)
+			end
+			result << aLine if !aLine.empty?
+		end
+		return result
+	end
+
+	def parseMakefile(makefileBody)
+		body = removeRemark(makefileBody).join(" ")
+		baseDir = FileUtil.getDirectoryFromPath(@makefilePath)
+		DEF_NATIVE_LIB_IDENTIFIER.each do |aCondition|
+			pos = body.index(aCondition)
+			if pos then
+				theBody = StrUtil.getBlacket(body, "{", "}", pos)
+				ensuredJson = ensureJson(theBody)
+
+				theLib = {}
+				begin
+					theLib = JSON.parse(ensuredJson)
+				rescue => ex
+
+				end
+				if !theLib.empty? then
+					@isNativeLib = true
+					@builtOuts << theLib[DEF_LIB_NAME] if theLib.has_key?(DEF_LIB_NAME)
+					DEF_INCLUDE_DIRS.each do |anIncludeIdentifier|
+						if theLib.has_key?(anIncludeIdentifier) then
+							theLib[anIncludeIdentifier].to_a.each do |anInclude|
+								@nativeIncludes << "#{baseDir}/#{anInclude}"
+							end
+						end
+					end
+				end
+			end
+		end
+		@nativeIncludes.uniq!
+		@builtOuts.uniq!
+	end
+
+	def initialize(makefilePath, envFlatten)
+		super(makefilePath, envFlatten)
+
+		@nativeIncludes = []
+		@builtOuts = []
+		@isNativeLib = false
+		makefileBody = FileUtil.readFileAsArray(makefilePath)
+		parseMakefile(makefileBody)
 	end
 
 	def getResult
@@ -489,7 +578,7 @@ puts makefilePaths if options[:verbose]
 
 result = []
 makefilePaths.each do | aMakefilePath |
-	aParser = AndroidMkParser.new( aMakefilePath, options[:envFlatten] )
+	aParser = aMakefilePath.end_with?(".mk") ? AndroidMkParser.new( aMakefilePath, options[:envFlatten] ) : AndroidBpParser.new( aMakefilePath, options[:envFlatten] )
 	result << aParser.getResult() if aParser.isNativeLib()
 end
 
