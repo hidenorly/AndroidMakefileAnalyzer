@@ -29,6 +29,45 @@ class AndroidUtil
 	def self.getListOfAndroidMakefile(imagePath)
 		return FileUtil.getRegExpFilteredFiles(imagePath, "Android\.(mk|bp)$")
 	end
+
+	def self.getListOfNativeLibsInBuiltOut(builtOutPath)
+		return FileUtil.getRegExpFilteredFiles(builtOutPath, "\.(so|a)$")
+	end
+
+	def self.getFilenameFromPathWithoutSoExt( path )
+		path = FileUtil.getFilenameFromPath(path)
+		pos = path.to_s.rindex(".so")
+		path = pos ? path.slice(0, pos) : path
+		return path
+	end
+
+	def self.replaceLibPathWithBuiltOuts( original, nativeLibsInBuiltOut )
+		result = []
+		builtOutCache = {}
+
+		nativeLibsInBuiltOut.each do |aLibPath|
+			builtOutCache[ getFilenameFromPathWithoutSoExt( aLibPath ) ] = aLibPath
+		end
+
+		original.each do |aResult|
+			if aResult.has_key?("libs") then
+				libs = aResult["libs"]
+				replacedLibs = []
+				libs.to_a.each do |aLib|
+					key = getFilenameFromPathWithoutSoExt(aLib)
+					if builtOutCache.has_key?( key ) then
+						replacedLibs << builtOutCache[key]
+					else
+						replacedLibs << aLib
+					end
+					aResult["libs"] = replacedLibs
+				end
+			end
+			result << aResult
+		end
+
+		return result
+	end
 end
 
 class AndroidMakefileParser
@@ -169,7 +208,7 @@ class AndroidMkParser < AndroidMakefileParser
 
 	def getResult
 		result = {}
-		result["libName"] = FileUtil.getFilenameFromPathWithoutExt(@builtOuts.to_a[0])
+		result["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(@builtOuts.to_a[0])
 		result["version"] = ""
 		result["headers"] = @nativeIncludes
 		result["libs"] = @builtOuts
@@ -257,7 +296,7 @@ class AndroidBpParser < AndroidMakefileParser
 
 	def getResult
 		result = {}
-		result["libName"] = FileUtil.getFilenameFromPathWithoutExt(@builtOuts.to_a[0])
+		result["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(@builtOuts.to_a[0])
 		result["version"] = ""
 		result["headers"] = @nativeIncludes
 		result["libs"] = @builtOuts
@@ -527,6 +566,7 @@ options = {
 	:verbose => false,
 	:envFlatten => false,
 	:reportFormat => "xml",
+	:outFolder => nil,
 }
 
 reporter = XmlReporter
@@ -547,6 +587,10 @@ opt_parser = OptionParser.new do |opts|
 
 	opts.on("-e", "--envFlatten", "Enable env value flatten") do
 		options[:envFlatten] = true
+	end
+
+	opts.on("-o", "--outMatch=", "Specify built out folder if you want to use built out file match") do |outFolder|
+		options[:outFolder] = outFolder
 	end
 
 	opts.on("-v", "--verbose", "Enable verbose status output") do
@@ -574,12 +618,21 @@ else
 	end
 end
 
+nativeLibsInBuiltOut = []
+if options[:outFolder] then
+	nativeLibsInBuiltOut = AndroidUtil.getListOfNativeLibsInBuiltOut(options[:outFolder])
+end
+
 puts makefilePaths if options[:verbose]
 
 result = []
 makefilePaths.each do | aMakefilePath |
 	aParser = aMakefilePath.end_with?(".mk") ? AndroidMkParser.new( aMakefilePath, options[:envFlatten] ) : AndroidBpParser.new( aMakefilePath, options[:envFlatten] )
 	result << aParser.getResult() if aParser.isNativeLib()
+end
+
+if !nativeLibsInBuiltOut.empty? then
+	result = AndroidUtil.replaceLibPathWithBuiltOuts( result, nativeLibsInBuiltOut )
 end
 
 reporter.report( result, "libName|version|headers|libs" )
