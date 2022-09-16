@@ -310,11 +310,15 @@ end
 
 
 class Reporter
-	def self.titleOut(title)
-		puts title
+	def initialize(outStream)
+		@outStream = outStream
 	end
 
-	def self._getMaxLengthData(data)
+	def titleOut(title)
+		@outStream.puts title
+	end
+
+	def _getMaxLengthData(data)
 		result = !data.empty? ? data[0] : {}
 
 		data.each do |aData|
@@ -324,7 +328,7 @@ class Reporter
 		return result
 	end
 
-	def self._ensureFilteredHash(data, outputSections)
+	def _ensureFilteredHash(data, outputSections)
 		result = data
 
 		if outputSections then
@@ -346,16 +350,16 @@ class Reporter
 		return result
 	end
 
-	def self.report(data, outputSections=nil)
+	def report(data, outputSections=nil, options={})
 		outputSections = outputSections ? outputSections.split("|") : nil
 
 		if data.length then
 			keys = _getMaxLengthData(data) #data[0]
 			if keys.kind_of?(Hash) then
 				keys = _ensureFilteredHash(keys, outputSections)
-				_conv(keys, true, false, true)
+				_conv(keys, true, false, true, options)
 			elsif outputSections then
-				_conv(outputSections, true, false, true)
+				_conv(outputSections, true, false, true, options)
 			end
 
 			data.each do |aData|
@@ -365,18 +369,21 @@ class Reporter
 		end
 	end
 
-	def self._conv(aData, keyOutput=false, valOutput=true, firstLine=false)
-		puts aData
+	def _conv(aData, keyOutput=false, valOutput=true, firstLine=false, options={})
+		@outStream.puts aData
 	end
 end
 
 class MarkdownReporter < Reporter
-	def self.titleOut(title)
-		puts "\# #{title}"
-		puts ""
+	def initialize(outStream)
+		super(outStream)
+	end
+	def titleOut(title)
+		@outStream.puts "\# #{title}"
+		@outStream.puts ""
 	end
 
-	def self.reportFilter(aLine)
+	def reportFilter(aLine)
 		if aLine.kind_of?(Array) then
 			tmp = ""
 			aLine.each do |aVal|
@@ -390,7 +397,7 @@ class MarkdownReporter < Reporter
 		return aLine
 	end
 
-	def self._conv(aData, keyOutput=false, valOutput=true, firstLine=false)
+	def _conv(aData, keyOutput=false, valOutput=true, firstLine=false, options={})
 		separator = "|"
 		aLine = separator
 		count = 0
@@ -407,26 +414,30 @@ class MarkdownReporter < Reporter
 					count = count + 1
 				end
 			end
-			puts aLine
+			@outStream.puts aLine
 			if firstLine && count then
 				aLine = "|"
 				for i in 1..count do
 					aLine = "#{aLine} :--- |"
 				end
-				puts aLine
+				@outStream.puts aLine
 			end
 		else
-			puts "#{separator} #{reportFilter(aData)} #{separator}"
+			@outStream.puts "#{separator} #{reportFilter(aData)} #{separator}"
 		end
 	end
 end
 
 class CsvReporter < Reporter
-	def self.titleOut(title)
-		puts ""
+	def initialize(outStream)
+		super(outStream)
 	end
 
-	def self.reportFilter(aLine)
+	def titleOut(title)
+		@outStream.puts ""
+	end
+
+	def reportFilter(aLine)
 		if aLine.kind_of?(Array) then
 			tmp = ""
 			aLine.each do |aVal|
@@ -440,7 +451,7 @@ class CsvReporter < Reporter
 		return aLine
 	end
 
-	def self._conv(aData, keyOutput=false, valOutput=true, firstLine=false)
+	def _conv(aData, keyOutput=false, valOutput=true, firstLine=false, options={})
 		aLine = ""
 		if aData.kind_of?(Enumerable) then
 			if aData.kind_of?(Hash) then
@@ -453,20 +464,24 @@ class CsvReporter < Reporter
 					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{reportFilter(theVal)}" if valOutput
 				end
 			end
-			puts aLine
+			@outStream.puts aLine
 		else
-			puts "#{reportFilter(aData)}"
+			@outStream.puts "#{reportFilter(aData)}"
 		end
 	end
 end
 
 class XmlReporter < Reporter
-	def self.titleOut(title)
-		puts "<!-- #{title} --/>"
-		puts ""
+	def initialize(outStream)
+		super(outStream)
 	end
 
-	def self.reportFilter(aLine)
+	def titleOut(title)
+		@outStream.puts "<!-- #{title} --/>"
+		@outStream.puts ""
+	end
+
+	def reportFilter(aLine)
 		if aLine.kind_of?(Array) then
 			tmp = ""
 			aLine.each do |aVal|
@@ -480,7 +495,7 @@ class XmlReporter < Reporter
 		return aLine
 	end
 
-	def self.report(data, outputSections=nil)
+	def report(data, outputSections=nil, options={})
 		outputSections = outputSections ? outputSections.split("|") : nil
 		mainKey = nil
 		if outputSections then
@@ -492,16 +507,16 @@ class XmlReporter < Reporter
 			if mainKey then
 				mainVal = aData.has_key?(mainKey) ? aData[mainKey] : ""
 				aData.delete(mainKey)
-				puts "<#{mainKey} #{mainVal ? "value=\"#{mainVal}\"" : ""}>"
+				@outStream.puts "<#{mainKey} #{mainVal ? "value=\"#{mainVal}\"" : ""}>"
 				_subReport(aData, 4)
-				puts "</#{mainKey}>"
+				@outStream.puts "</#{mainKey}>"
 			else
 				_subReport(aData, 0)
 			end
 		end
 	end
 
-	def self._isEnumerable(theData)
+	def _isEnumerable(theData)
 		result = false
 		theData.each do |aData|
 			if aData.kind_of?(Enumerable) then
@@ -512,13 +527,13 @@ class XmlReporter < Reporter
 		return result
 	end
 
-	def self._subReport(aData, baseIndent=4, keyOutput=true, valOutput=true, firstLine=false)
+	def _subReport(aData, baseIndent=4, keyOutput=true, valOutput=true, firstLine=false)
 		separator = "\n"
 		if aData.kind_of?(Enumerable) then
 			indent = baseIndent + 4
 			if aData.kind_of?(Hash) then
 				aData.each do |aKey,theVal|
-					puts "#{" "*baseIndent}<#{aKey}>"
+					@outStream.puts "#{" "*baseIndent}<#{aKey}>"
 					if theVal.kind_of?(Enumerable) then
 						_subReport(theVal, indent)
 					else
@@ -527,11 +542,11 @@ class XmlReporter < Reporter
 							puts "#{" "*indent}#{aVal}"
 						end
 					end
-					puts "#{" "*baseIndent}</#{aKey}>"
+					@outStream.puts "#{" "*baseIndent}</#{aKey}>"
 				end
 			elsif aData.kind_of?(Array) then
 				isEnumerable = _isEnumerable(aData)
-				puts "#{" "*baseIndent}<data>" if isEnumerable
+				@outStream.puts "#{" "*baseIndent}<data>" if isEnumerable
 				aLine = ""
 				aData.each do |theVal|
 					if theVal.kind_of?(Enumerable) then
@@ -543,21 +558,24 @@ class XmlReporter < Reporter
 						end
 					end
 				end
-				puts aLine
-				puts "#{" "*baseIndent}</data>" if isEnumerable
+				@outStream.puts aLine
+				@outStream.puts "#{" "*baseIndent}</data>" if isEnumerable
 			else
 				aVal = reportFilter(aData)
 				if aVal && !aVal.empty? then
-					puts "#{" "*indent}#{aVal}"
+					@outStream.puts "#{" "*indent}#{aVal}"
 				end
 			end
 		else
 			aVal = reportFilter(aData)
 			if aVal && !aVal.empty? then
-				puts "#{" "*indent}#{aVal}"
+				@outStream.puts "#{" "*indent}#{aVal}"
 			end
 		end
 	end
+end
+
+class XmlReporterPerLib < XmlReporter
 end
 
 
@@ -567,6 +585,7 @@ options = {
 	:envFlatten => false,
 	:reportFormat => "xml",
 	:outFolder => nil,
+	:reportOutPath => nil,
 }
 
 reporter = XmlReporter
@@ -574,7 +593,7 @@ reporter = XmlReporter
 opt_parser = OptionParser.new do |opts|
 	opts.banner = "Usage: usage ANDROID_HOME"
 
-	opts.on("-r", "--reportFormat=", "Specify report format markdown|csv|xml (default:#{options[:reportFormat]})") do |reportFormat|
+	opts.on("-r", "--reportFormat=", "Specify report format markdown|csv|xml|xml-perlib (default:#{options[:reportFormat]})") do |reportFormat|
 		case reportFormat.to_s.downcase
 		when "markdown"
 			reporter = MarkdownReporter
@@ -582,12 +601,20 @@ opt_parser = OptionParser.new do |opts|
 			reporter = CsvReporter
 		when "xml"
 			reporter = XmlReporter
+		when "xml-perlib"
+			reporter = XmlReporterPerLib
 		end
 	end
 
 	opts.on("-e", "--envFlatten", "Enable env value flatten") do
 		options[:envFlatten] = true
 	end
+
+=begin
+	opts.on("-p", "--reportOutPath=", "Specify report output folder if you want to report out as file") do |reportOutPath|
+		options[:reportOutPath] = reportOutPath
+	end
+=end
 
 	opts.on("-o", "--outMatch=", "Specify built out folder if you want to use built out file match") do |outFolder|
 		options[:outFolder] = outFolder
@@ -635,4 +662,5 @@ if !nativeLibsInBuiltOut.empty? then
 	result = AndroidUtil.replaceLibPathWithBuiltOuts( result, nativeLibsInBuiltOut )
 end
 
-reporter.report( result, "libName|version|headers|libs" )
+reporter = reporter.new( STDOUT )
+reporter.report( result, "libName|version|headers|libs", options )
