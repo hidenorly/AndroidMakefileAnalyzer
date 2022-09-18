@@ -206,10 +206,10 @@ class AndroidMkParser < AndroidMakefileParser
 		parseMakefile(makefileBody) if @isNativeLib
 	end
 
-	def getResult
+	def getResult(defaultVersion)
 		result = {}
 		result["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(@builtOuts.to_a[0])
-		result["version"] = ""
+		result["version"] = defaultVersion #TODO: get version and use it if it's not specified
 		result["headers"] = @nativeIncludes
 		result["libs"] = @builtOuts
 		return result
@@ -294,10 +294,10 @@ class AndroidBpParser < AndroidMakefileParser
 		parseMakefile(makefileBody)
 	end
 
-	def getResult
+	def getResult(defaultVersion)
 		result = {}
 		result["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(@builtOuts.to_a[0])
-		result["version"] = ""
+		result["version"] = defaultVersion #TODO: use defaultVersion if not found
 		result["headers"] = @nativeIncludes
 		result["libs"] = @builtOuts
 		return result
@@ -586,6 +586,7 @@ options = {
 	:reportFormat => "xml",
 	:outFolder => nil,
 	:reportOutPath => nil,
+	:version => nil,
 }
 
 reporter = XmlReporter
@@ -610,6 +611,10 @@ opt_parser = OptionParser.new do |opts|
 		options[:envFlatten] = true
 	end
 
+	opts.on("-v", "--version=", "Set default version in the lib report") do |version|
+		options[:version] = version
+	end
+
 =begin
 	opts.on("-p", "--reportOutPath=", "Specify report output folder if you want to report out as file") do |reportOutPath|
 		options[:reportOutPath] = reportOutPath
@@ -620,7 +625,7 @@ opt_parser = OptionParser.new do |opts|
 		options[:outFolder] = outFolder
 	end
 
-	opts.on("-v", "--verbose", "Enable verbose status output") do
+	opts.on("", "--verbose", "Enable verbose status output") do
 		options[:verbose] = true
 	end
 end.parse!
@@ -655,7 +660,7 @@ puts makefilePaths if options[:verbose]
 result = []
 makefilePaths.each do | aMakefilePath |
 	aParser = aMakefilePath.end_with?(".mk") ? AndroidMkParser.new( aMakefilePath, options[:envFlatten] ) : AndroidBpParser.new( aMakefilePath, options[:envFlatten] )
-	result << aParser.getResult() if aParser.isNativeLib()
+	result << aParser.getResult(options[:version]) if aParser.isNativeLib()
 end
 
 if !nativeLibsInBuiltOut.empty? then
