@@ -118,6 +118,16 @@ class FileUtil
 		return result
 	end
 
+	def self.getFileWriter(path)
+		result = nil
+		begin
+			result = File.open(path, "w")
+		rescue => ex
+		end
+		return result
+	end
+
+
 	def self.writeFile(path, body)
 		if path then
 			fileWriter = File.open(path, "w")

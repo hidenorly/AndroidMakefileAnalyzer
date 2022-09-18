@@ -209,7 +209,7 @@ class AndroidMkParser < AndroidMakefileParser
 	def getResult(defaultVersion)
 		result = {}
 		result["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(@builtOuts.to_a[0])
-		result["version"] = defaultVersion #TODO: get version and use it if it's not specified
+		result["version"] = defaultVersion.to_s #TODO: get version and use it if it's not specified
 		result["headers"] = @nativeIncludes
 		result["libs"] = @builtOuts
 		return result
@@ -297,7 +297,7 @@ class AndroidBpParser < AndroidMakefileParser
 	def getResult(defaultVersion)
 		result = {}
 		result["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(@builtOuts.to_a[0])
-		result["version"] = defaultVersion #TODO: use defaultVersion if not found
+		result["version"] = defaultVersion.to_s #TODO: use defaultVersion if not found
 		result["headers"] = @nativeIncludes
 		result["libs"] = @builtOuts
 		return result
@@ -612,14 +612,14 @@ opt_parser = OptionParser.new do |opts|
 	end
 
 	opts.on("-v", "--version=", "Set default version in the lib report") do |version|
-		options[:version] = version
+		options[:version] = version.to_s
 	end
 
-=begin
+begin
 	opts.on("-p", "--reportOutPath=", "Specify report output folder if you want to report out as file") do |reportOutPath|
 		options[:reportOutPath] = reportOutPath
 	end
-=end
+end
 
 	opts.on("-o", "--outMatch=", "Specify built out folder if you want to use built out file match") do |outFolder|
 		options[:outFolder] = outFolder
@@ -667,5 +667,9 @@ if !nativeLibsInBuiltOut.empty? then
 	result = AndroidUtil.replaceLibPathWithBuiltOuts( result, nativeLibsInBuiltOut )
 end
 
-reporter = reporter.new( STDOUT )
+writer = options[:reportOutPath] ? FileUtil.getFileWriter(options[:reportOutPath]) : nil
+writer = writer ? writer : STDOUT
+
+reporter = reporter.new( writer )
 reporter.report( result, "libName|version|headers|libs", options )
+writer.close()
