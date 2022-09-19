@@ -310,12 +310,21 @@ end
 
 
 class Reporter
-	def initialize(outStream)
+	def initialize(reportOutPath)
+		outStream = reportOutPath ? FileUtil.getFileWriter(reportOutPath) : nil
+		outStream = outStream ? outStream : STDOUT
 		@outStream = outStream
 	end
 
+	def close()
+		if @outStream then
+			@outStream.close() if @outStream!=STDOUT
+			@outStream = nil
+		end
+	end
+
 	def titleOut(title)
-		@outStream.puts title
+		@outStream.puts title if @outStream
 	end
 
 	def _getMaxLengthData(data)
@@ -370,17 +379,19 @@ class Reporter
 	end
 
 	def _conv(aData, keyOutput=false, valOutput=true, firstLine=false, options={})
-		@outStream.puts aData
+		@outStream.puts aData if @outStream
 	end
 end
 
 class MarkdownReporter < Reporter
-	def initialize(outStream)
-		super(outStream)
+	def initialize(reportOutPath)
+		super(reportOutPath)
 	end
 	def titleOut(title)
-		@outStream.puts "\# #{title}"
-		@outStream.puts ""
+		if @outStream
+			@outStream.puts "\# #{title}"
+			@outStream.puts ""
+		end
 	end
 
 	def reportFilter(aLine)
@@ -414,27 +425,27 @@ class MarkdownReporter < Reporter
 					count = count + 1
 				end
 			end
-			@outStream.puts aLine
+			@outStream.puts aLine if @outStream
 			if firstLine && count then
 				aLine = "|"
 				for i in 1..count do
 					aLine = "#{aLine} :--- |"
 				end
-				@outStream.puts aLine
+				@outStream.puts aLine if @outStream
 			end
 		else
-			@outStream.puts "#{separator} #{reportFilter(aData)} #{separator}"
+			@outStream.puts "#{separator} #{reportFilter(aData)} #{separator}" if @outStream
 		end
 	end
 end
 
 class CsvReporter < Reporter
-	def initialize(outStream)
-		super(outStream)
+	def initialize(reportOutPath)
+		super(reportOutPath)
 	end
 
 	def titleOut(title)
-		@outStream.puts ""
+		@outStream.puts "" if @outStream
 	end
 
 	def reportFilter(aLine)
@@ -464,21 +475,23 @@ class CsvReporter < Reporter
 					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{reportFilter(theVal)}" if valOutput
 				end
 			end
-			@outStream.puts aLine
+			@outStream.puts aLine if @outStream
 		else
-			@outStream.puts "#{reportFilter(aData)}"
+			@outStream.puts "#{reportFilter(aData)}" if @outStream
 		end
 	end
 end
 
 class XmlReporter < Reporter
-	def initialize(outStream)
-		super(outStream)
+	def initialize(reportOutPath)
+		super(reportOutPath)
 	end
 
 	def titleOut(title)
-		@outStream.puts "<!-- #{title} --/>"
-		@outStream.puts ""
+		if @outStream then
+			@outStream.puts "<!-- #{title} --/>"
+			@outStream.puts ""
+		end
 	end
 
 	def reportFilter(aLine)
@@ -507,9 +520,9 @@ class XmlReporter < Reporter
 			if mainKey then
 				mainVal = aData.has_key?(mainKey) ? aData[mainKey] : ""
 				aData.delete(mainKey)
-				@outStream.puts "<#{mainKey} #{mainVal ? "value=\"#{mainVal}\"" : ""}>"
+				@outStream.puts "<#{mainKey} #{mainVal ? "value=\"#{mainVal}\"" : ""}>" if @outStream
 				_subReport(aData, 4)
-				@outStream.puts "</#{mainKey}>"
+				@outStream.puts "</#{mainKey}>" if @outStream
 			else
 				_subReport(aData, 0)
 			end
@@ -533,20 +546,20 @@ class XmlReporter < Reporter
 			indent = baseIndent + 4
 			if aData.kind_of?(Hash) then
 				aData.each do |aKey,theVal|
-					@outStream.puts "#{" "*baseIndent}<#{aKey}>"
+					@outStream.puts "#{" "*baseIndent}<#{aKey}>" if @outStream
 					if theVal.kind_of?(Enumerable) then
 						_subReport(theVal, indent)
 					else
 						aVal = reportFilter(theVal)
 						if aVal && !aVal.empty? then
-							puts "#{" "*indent}#{aVal}"
+							@outStream.puts "#{" "*indent}#{aVal}" if @outStream
 						end
 					end
-					@outStream.puts "#{" "*baseIndent}</#{aKey}>"
+					@outStream.puts "#{" "*baseIndent}</#{aKey}>" if @outStream
 				end
 			elsif aData.kind_of?(Array) then
 				isEnumerable = _isEnumerable(aData)
-				@outStream.puts "#{" "*baseIndent}<data>" if isEnumerable
+				@outStream.puts "#{" "*baseIndent}<data>" if isEnumerable && @outStream
 				aLine = ""
 				aData.each do |theVal|
 					if theVal.kind_of?(Enumerable) then
@@ -558,18 +571,20 @@ class XmlReporter < Reporter
 						end
 					end
 				end
-				@outStream.puts aLine
-				@outStream.puts "#{" "*baseIndent}</data>" if isEnumerable
+				if @outStream then
+					@outStream.puts aLine
+					@outStream.puts "#{" "*baseIndent}</data>" if isEnumerable
+				end
 			else
 				aVal = reportFilter(aData)
 				if aVal && !aVal.empty? then
-					@outStream.puts "#{" "*indent}#{aVal}"
+					@outStream.puts "#{" "*indent}#{aVal}" if @outStream
 				end
 			end
 		else
 			aVal = reportFilter(aData)
 			if aVal && !aVal.empty? then
-				@outStream.puts "#{" "*indent}#{aVal}"
+				@outStream.puts "#{" "*indent}#{aVal}" if @outStream
 			end
 		end
 	end
@@ -667,9 +682,6 @@ if !nativeLibsInBuiltOut.empty? then
 	result = AndroidUtil.replaceLibPathWithBuiltOuts( result, nativeLibsInBuiltOut )
 end
 
-writer = options[:reportOutPath] ? FileUtil.getFileWriter(options[:reportOutPath]) : nil
-writer = writer ? writer : STDOUT
-
-reporter = reporter.new( writer )
+reporter = reporter.new( options[:reportOutPath] )
 reporter.report( result, "libName|version|headers|libs", options )
-writer.close()
+reporter.close()

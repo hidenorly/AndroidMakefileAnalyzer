@@ -16,7 +16,7 @@ require "./StrUtil"
 
 class FileUtil
 	def self.ensureDirectory(path)
-		paths = path.split("/")
+		paths = path.to_s.split("/")
 		path = ""
 		begin
 			paths.each do |aPath|
