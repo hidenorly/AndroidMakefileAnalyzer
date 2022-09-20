@@ -310,10 +310,14 @@ end
 
 
 class Reporter
-	def initialize(reportOutPath)
+	def setupOutStream(reportOutPath)
 		outStream = reportOutPath ? FileUtil.getFileWriter(reportOutPath) : nil
 		outStream = outStream ? outStream : STDOUT
 		@outStream = outStream
+	end
+
+	def initialize(reportOutPath)
+		setupOutStream(reportOutPath)
 	end
 
 	def close()
@@ -591,6 +595,33 @@ class XmlReporter < Reporter
 end
 
 class XmlReporterPerLib < XmlReporter
+	def initialize(reportOutPath)
+		@reportOutPath = reportOutPath
+		@outStream = nil
+	end
+
+	def report(data, outputSections=nil, options={})
+		outputSections = outputSections ? outputSections.split("|") : nil
+		mainKey = nil
+		if outputSections then
+			mainKey = outputSections[0]
+		end
+
+		data.each do |aData|
+			aData = _ensureFilteredHash(aData, outputSections) if aData.kind_of?(Hash)
+			reportPath = @reportOutPath
+			if mainKey then
+				mainVal = aData.has_key?(mainKey) ? aData[mainKey] : "library"
+				aData.delete(mainKey)
+				baseDir = @reportOutPath.to_s.include?(".xml") ? FileUtil.getDirectoryFromPath(@reportOutPath) : @reportOutPath
+				reportPath = "#{baseDir}/#{mainVal}.xml"
+			end
+			FileUtil.ensureDirectory( FileUtil.getDirectoryFromPath(reportPath) )
+			setupOutStream( reportPath )
+			_subReport(aData, 0)
+			@outStream.close() if @outStream!=STDOUT
+		end
+	end
 end
 
 
@@ -630,11 +661,9 @@ opt_parser = OptionParser.new do |opts|
 		options[:version] = version.to_s
 	end
 
-begin
 	opts.on("-p", "--reportOutPath=", "Specify report output folder if you want to report out as file") do |reportOutPath|
 		options[:reportOutPath] = reportOutPath
 	end
-end
 
 	opts.on("-o", "--outMatch=", "Specify built out folder if you want to use built out file match") do |outFolder|
 		options[:outFolder] = outFolder
