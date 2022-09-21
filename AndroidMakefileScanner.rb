@@ -41,7 +41,7 @@ class AndroidUtil
 		return path
 	end
 
-	def self.replaceLibPathWithBuiltOuts( original, nativeLibsInBuiltOut )
+	def self.replaceLibPathWithBuiltOuts( original, nativeLibsInBuiltOut, enableOnlyFoundLibs = false )
 		result = []
 		builtOutCache = {}
 
@@ -50,20 +50,25 @@ class AndroidUtil
 		end
 
 		original.each do |aResult|
+			foundLib = false
 			if aResult.has_key?("libs") then
 				libs = aResult["libs"]
 				replacedLibs = []
 				libs.to_a.each do |aLib|
 					key = getFilenameFromPathWithoutSoExt(aLib)
 					if builtOutCache.has_key?( key ) then
+						foundLib = true
 						replacedLibs << builtOutCache[key]
 					else
-						replacedLibs << aLib
+						replacedLibs << aLib if !enableOnlyFoundLibs
 					end
-					aResult["libs"] = replacedLibs
 				end
+				aResult["libs"] = replacedLibs
 			end
-			result << aResult
+
+			aResult["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(aResult["libs"].to_a[0]) if !aResult["libs"].to_a.empty?
+
+			result << aResult if !enableOnlyFoundLibs || foundLib
 		end
 
 		return result
@@ -631,6 +636,7 @@ options = {
 	:envFlatten => false,
 	:reportFormat => "xml",
 	:outFolder => nil,
+	:filterOutMatch => false,
 	:reportOutPath => nil,
 	:version => nil,
 }
@@ -667,6 +673,10 @@ opt_parser = OptionParser.new do |opts|
 
 	opts.on("-o", "--outMatch=", "Specify built out folder if you want to use built out file match") do |outFolder|
 		options[:outFolder] = outFolder
+	end
+
+	opts.on("-f", "--filterOutMatch", "Specify if you want to output libs found in --outMatch") do
+		options[:filterOutMatch] = true
 	end
 
 	opts.on("", "--verbose", "Enable verbose status output") do
@@ -708,7 +718,7 @@ makefilePaths.each do | aMakefilePath |
 end
 
 if !nativeLibsInBuiltOut.empty? then
-	result = AndroidUtil.replaceLibPathWithBuiltOuts( result, nativeLibsInBuiltOut )
+	result = AndroidUtil.replaceLibPathWithBuiltOuts( result, nativeLibsInBuiltOut, options[:filterOutMatch] )
 end
 
 reporter = reporter.new( options[:reportOutPath] )
