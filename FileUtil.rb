@@ -89,6 +89,7 @@ class FileUtil
 	end
 
 	def self.getFilenameFromPath(path)
+		path = path.to_s
 		pos = path.rindex("/")
 		path = pos ? path.slice(pos+1, path.length-pos) : path
 		return path
