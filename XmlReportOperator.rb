@@ -18,6 +18,8 @@ require 'fileutils'
 require 'optparse'
 require 'rexml/document'
 require_relative 'FileUtil'
+require_relative 'ExecUtil'
+require 'shellwords'
 
 class XmlPerLibReporterParser
 	def self.getListOfReportFiles(reportPath)
@@ -65,6 +67,31 @@ class XmlPerLibReporterParser
 	end
 end
 
+
+class AbiComplianceChecker
+	DEF_ACC = "abi-compliance-checker"
+	DEF_GCC_PATH = ENV["PATH_GCC"]
+
+	def initialize(libXmlPath1, libXmlPath2, reportOutPath)
+		puts @libXmlPath1 = libXmlPath1
+		puts @libXmlPath2 = libXmlPath2
+		@reportOutPath = reportOutPath
+		@libName = XmlPerLibReporterParser.getFilenameFromPathWithoutExt(libXmlPath1)
+	end
+
+	def execute
+		reportPath = ""
+		exec_cmd = "#{DEF_ACC} -lib #{Shellwords.escape(@libName)} -old #{Shellwords.escape(@libXmlPath1)} -new #{Shellwords.escape(@libXmlPath2)}"
+		exec_cmd = exec_cmd + " --gcc-path=#{Shellwords.escape(DEF_GCC_PATH)}" if DEF_GCC_PATH
+		result = ExecUtil.getExecResultEachLine(exec_cmd, @reportOutPath, false, true, true)
+
+		reportPath = "#{@reportOutPath}/compat_reports/#{@libName}"
+		
+		return reportPath
+	end
+end
+
+
 parser = XmlPerLibReporterParser
 
 
@@ -73,7 +100,7 @@ options = {
 	:verbose => false,
 	:reportFormat => "xml-perlib",
 	:outFolder => nil,
-	:reportOutPath => nil,
+	:reportOutPath => ".",
 	:version => nil,
 }
 
@@ -89,6 +116,12 @@ opt_parser = OptionParser.new do |opts|
 			parser = XmlPerLibReporterParser
 		end
 	end
+
+	opts.on("-o", "--reportOutPath=", "Specify report outpit path(default:#{options[:reportOutPath]})") do |reportOutPath|
+		options[:reportOutPath] = reportOutPath
+		FileUtil.ensureDirectory( reportOutPath )
+	end
+
 	opts.on("", "--verbose", "Enable verbose status output") do
 		options[:verbose] = true
 	end
@@ -121,16 +154,20 @@ end
 
 
 reports = []
+reportFilePathsPerLibName={}
 reportFiles.each do |theReportFiles|
 	theReports = {}
 	theReportFiles.each do |aReportFile|
 		result, libName = parser.getResult( aReportFile )
 		theReports[libName] = result
+		reportFilePathsPerLibName[libName] = [] if !reportFilePathsPerLibName.has_key?(libName)
+		reportFilePathsPerLibName[libName] << aReportFile
 	end
 	reports << theReports
 end
 
 commonLibs = []
+commonKeys = []
 
 if reports.length == 2 then
 	keys = []
@@ -146,4 +183,10 @@ if reports.length == 2 then
 	end
 end
 
-puts commonLibs if options[:verbose]
+commonKeys.each do |aLib|
+	theReportPaths = reportFilePathsPerLibName[aLib]
+	if theReportPaths.length == 2 then
+		acc = AbiComplianceChecker.new( theReportPaths[0], theReportPaths[1], options[:reportOutPath] )
+		acc.execute()
+	end
+end

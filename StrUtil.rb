@@ -58,4 +58,72 @@ class StrUtil
 
 		return result
 	end
+
+	DEF_SEPARATOR_CONDITIONS=[
+		" ",
+		"{",
+		"}",
+		",",
+		"[",
+		"]",
+		"\"",
+		" ",
+		":"
+	]
+
+	def getJsonKey(body, curPos = 0 , lastFound)
+		identifier = ":"
+		result = body
+		pos = body.index(identifier, curPos)
+		searchLimit = lastFound ? pos-lastFound : pos
+		lastFound = lastFound ? lastFound : 0
+		foundPos = nil
+		if pos then
+			for i in 1..searchLimit do
+				theTarget = body.slice(pos-i)
+				DEF_SEPARATOR_CONDITIONS.each do |aCondition|
+					if theTarget == aCondition then
+						foundPos = pos - i
+						break
+					end
+				end
+=begin
+				if body.slice(pos-i).match(/( |\"|\'|\[|\]|,'|{|})/) then
+					foundPos = pos-i
+					break
+				end
+=end
+			break if foundPos
+			end
+		end
+		if foundPos then
+			result = body.slice(lastFound, foundPos-lastFound) + "\"" + body.slice(foundPos+1,pos-foundPos-1) + "\""
+		else
+			result = body.slice(lastFound, curPos-lastFound)
+		end
+		return result
+	end
+
+	def ensureJson(body)
+		return "{ #{body} }".gsub(/(\w+)\s*:/, '"\1":').gsub(/,(?= *\])/, '').gsub(/,(?= *\})/, '')
+
+		result = ""
+		i = 0
+		lastFound = nil
+		theLength = body.length
+		pos = body.index(":", i)
+		while i<theLength && pos!=nil
+			pos = body.index(":", i)
+			if pos then
+				i = pos + 1
+				result = result + getJsonKey(body, pos, lastFound) + ":"
+				lastFound = i
+			else
+				result = result + body.slice(i, theLength)
+				break
+			end
+		end
+		result = body if result.empty?
+		return result
+	end
 end
