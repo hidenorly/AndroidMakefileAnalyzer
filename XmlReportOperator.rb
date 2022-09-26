@@ -85,6 +85,8 @@ class AbiComplianceChecker
 		exec_cmd = exec_cmd + " --gcc-path=#{Shellwords.escape(DEF_GCC_PATH)}" if DEF_GCC_PATH
 		result = ExecUtil.getExecResultEachLine(exec_cmd, @reportOutPath, false, true, true)
 
+		#TODO: Parse the result
+
 		reportPath = "#{@reportOutPath}/compat_reports/#{@libName}"
 		
 		return reportPath

@@ -46,7 +46,7 @@ class AndroidUtil
 		builtOutCache = {}
 
 		nativeLibsInBuiltOut.each do |aLibPath|
-			builtOutCache[ getFilenameFromPathWithoutSoExt( aLibPath ) ] = aLibPath
+			builtOutCache[ getFilenameFromPathWithoutSoExt( aLibPath ) ] = aLibPathaLibPath if !enableOnlyFoundLibs || enableOnlyFoundLibs && File.exist?(aLibPath) && File.size?(aLibPath)>0
 		end
 
 		original.each do |aResult|
