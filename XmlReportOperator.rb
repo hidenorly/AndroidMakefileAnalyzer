@@ -72,17 +72,24 @@ class AbiComplianceChecker
 	DEF_ACC = "abi-compliance-checker"
 	DEF_GCC_PATH = ENV["PATH_GCC"]
 
-	def initialize(libXmlPath1, libXmlPath2, reportOutPath)
-		puts @libXmlPath1 = libXmlPath1
-		puts @libXmlPath2 = libXmlPath2
+	def initialize(libXmlPath1, libXmlPath2, reportOutPath, oldVer="", newVer="")
+		@libXmlPath1 = File.expand_path(libXmlPath1)
+		@libXmlPath2 = File.expand_path(libXmlPath2)
 		@reportOutPath = reportOutPath
 		@libName = XmlPerLibReporterParser.getFilenameFromPathWithoutExt(libXmlPath1)
+		@oldVer = oldVer.to_s
+		@newVer = newVer.to_s
 	end
 
 	def execute
 		reportPath = ""
 		exec_cmd = "#{DEF_ACC} -lib #{Shellwords.escape(@libName)} -old #{Shellwords.escape(@libXmlPath1)} -new #{Shellwords.escape(@libXmlPath2)}"
+		exec_cmd = exec_cmd + " -v1 #{@oldVer}" if !@oldVer.empty?
+		exec_cmd = exec_cmd + " -v2 #{@newVer}" if !@newVer.empty?
 		exec_cmd = exec_cmd + " --gcc-path=#{Shellwords.escape(DEF_GCC_PATH)}" if DEF_GCC_PATH
+
+		puts exec_cmd
+
 		result = ExecUtil.getExecResultEachLine(exec_cmd, @reportOutPath, false, true, true)
 
 		#TODO: Parse the result
@@ -136,6 +143,7 @@ if ARGV.length < 2 then
 	puts opt_parser
 	exit(-1)
 else
+	# enumerate lib xml report file paths
 	reportPaths << ARGV[0]
 	reportPaths << ARGV[1]
 	# check path
@@ -154,7 +162,7 @@ else
 	end
 end
 
-
+# Parse the lib xml report
 reports = []
 reportFilePathsPerLibName={}
 reportFiles.each do |theReportFiles|
@@ -168,6 +176,7 @@ reportFiles.each do |theReportFiles|
 	reports << theReports
 end
 
+# Calc common keys and common lib xml reports in ARGV[0] reports and ARGV[1] reports
 commonLibs = []
 commonKeys = []
 
@@ -185,10 +194,19 @@ if reports.length == 2 then
 	end
 end
 
+# Execute the common libs
 commonKeys.each do |aLib|
 	theReportPaths = reportFilePathsPerLibName[aLib]
 	if theReportPaths.length == 2 then
-		acc = AbiComplianceChecker.new( theReportPaths[0], theReportPaths[1], options[:reportOutPath] )
+		oldVer = ""
+		newVer = ""
+		if commonLibs.length == 2 then
+			oldLib = commonLibs[0][aLib]
+			oldVer = oldLib["version"] if oldLib.has_key?("version")
+			newLib = commonLibs[1][aLib]
+			newVer = newLib["version"] if newLib.has_key?("version")
+		end
+		acc = AbiComplianceChecker.new( theReportPaths[0], theReportPaths[1], options[:reportOutPath], oldVer, newVer )
 		acc.execute()
 	end
 end

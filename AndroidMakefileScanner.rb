@@ -46,7 +46,7 @@ class AndroidUtil
 		builtOutCache = {}
 
 		nativeLibsInBuiltOut.each do |aLibPath|
-			builtOutCache[ getFilenameFromPathWithoutSoExt( aLibPath ) ] = aLibPathaLibPath if !enableOnlyFoundLibs || enableOnlyFoundLibs && File.exist?(aLibPath) && File.size?(aLibPath)>0
+			builtOutCache[ getFilenameFromPathWithoutSoExt( aLibPath ) ] = aLibPath if !enableOnlyFoundLibs || enableOnlyFoundLibs && File.exist?(aLibPath) && File.size?(aLibPath)>0
 		end
 
 		original.each do |aResult|
@@ -80,10 +80,24 @@ class AndroidMakefileParser
 		@makefilePath = makefilePath
 		@envFlatten = envFlatten
 		@isNativeLib = false
+		@env = {}
+		@nativeIncludes = []
+		@builtOuts = []
+		@cflags = []
 	end
 
 	def isNativeLib
 		return @isNativeLib
+	end
+
+	def getResult(defaultVersion)
+		result = {}
+		result["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(@builtOuts.to_a[0])
+		result["version"] = defaultVersion.to_s #TODO: get version and use it if it's not specified
+		result["headers"] = @nativeIncludes.uniq
+		result["libs"] = @builtOuts.uniq
+		result["gcc_options"] = @cflags.uniq
+		return result
 	end
 
 	def dump
@@ -174,7 +188,6 @@ class AndroidMkParser < AndroidMakefileParser
 						val.each do |aVal|
 							@nativeIncludes << aVal if aVal
 						end
-						@nativeIncludes.uniq!
 					when DEF_OUTPUT_IDENTIFIER
 						@builtOuts << value if value
 					else
@@ -185,6 +198,9 @@ class AndroidMkParser < AndroidMakefileParser
 			end
 		end
 		_envEnsure()
+		@nativeIncludes.uniq!
+		@builtOuts.uniq!
+		@cflags.uniq!
 	end
 
 	DEF_NATIVE_LIB_IDENTIFIER=[
@@ -195,10 +211,7 @@ class AndroidMkParser < AndroidMakefileParser
 	def initialize(makefilePath, envFlatten)
 		super(makefilePath, envFlatten)
 
-		@env = {}
 		@env["call my-dir"] = FileUtil.getDirectoryFromPath(@makefilePath)
-		@nativeIncludes = []
-		@builtOuts = []
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
 		DEF_NATIVE_LIB_IDENTIFIER.each do | aCondition |
 			result = makefileBody.grep(aCondition)
@@ -211,15 +224,6 @@ class AndroidMkParser < AndroidMakefileParser
 		parseMakefile(makefileBody) if @isNativeLib
 	end
 
-	def getResult(defaultVersion)
-		result = {}
-		result["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(@builtOuts.to_a[0])
-		result["version"] = defaultVersion.to_s #TODO: get version and use it if it's not specified
-		result["headers"] = @nativeIncludes
-		result["libs"] = @builtOuts
-		return result
-	end
-
 	def dump
 		return "path:#{@makefilePath}, nativeLib:#{@isNativeLib ? "true" : "false"}, builtOuts:#{@builtOuts.to_s}, includes:#{@nativeIncludes.to_s}"
 	end
@@ -229,6 +233,7 @@ end
 
 class AndroidBpParser < AndroidMakefileParser
 	DEF_NATIVE_LIB_IDENTIFIER=[
+		"cc_defaults",
 		"cc_library",
 		"cc_library_shared",
 		"cc_library_static"
@@ -238,8 +243,12 @@ class AndroidBpParser < AndroidMakefileParser
 	DEF_INCLUDE_DIRS = [
 		"export_include_dirs",
 		"header_libs",
-		"export_header_lib_headers"
+		"export_header_lib_headers",
+		"include_dirs",
+		"local_include_dirs",
 	]
+
+	DEF_COMPILE_OPTION = "cflags"
 
 	def ensureJson(body)
 		return "{ #{body} }".gsub(/(\w+)\s*:/, '"\1":').gsub(/,(?= *\])/, '').gsub(/,(?= *\})/, '')
@@ -254,6 +263,26 @@ class AndroidBpParser < AndroidMakefileParser
 			end
 			result << aLine if !aLine.empty?
 		end
+		return result
+	end
+
+	def getRobustPath(basePath, thePath)
+		foundPaths = ""
+		thePaths = thePath.split("/")
+		thePaths.each do |aPath|
+			if basePath.include?(aPath) then
+				foundPaths = "#{foundPaths}/#{aPath}"
+			else
+				break
+			end
+		end
+		foundPaths = foundPaths.slice(1, foundPaths.length) if foundPaths.start_with?("/")
+		if !foundPaths.empty? then
+			remainingPath = thePath.slice( thePath.index(foundPaths)+foundPaths.length, thePath.length )
+			thePath = basePath.slice( 0, thePath.index(foundPaths) ) + remainingPath
+		end
+
+		result = "#{basePath}/#{thePath}"
 		return result
 	end
 
@@ -278,8 +307,14 @@ class AndroidBpParser < AndroidMakefileParser
 					DEF_INCLUDE_DIRS.each do |anIncludeIdentifier|
 						if theLib.has_key?(anIncludeIdentifier) then
 							theLib[anIncludeIdentifier].to_a.each do |anInclude|
-								@nativeIncludes << "#{baseDir}/#{anInclude}"
+								@nativeIncludes << getRobustPath(baseDir, anInclude)
 							end
+						end
+					end
+					if theLib.has_key?(DEF_COMPILE_OPTION) then
+						theLib[DEF_COMPILE_OPTION].to_a.each do |anOption|
+							anOption = anOption.to_s
+							@cflags << anOption if !anOption.empty?
 						end
 					end
 				end
@@ -287,25 +322,14 @@ class AndroidBpParser < AndroidMakefileParser
 		end
 		@nativeIncludes.uniq!
 		@builtOuts.uniq!
+		@cflags.uniq!
 	end
 
 	def initialize(makefilePath, envFlatten)
 		super(makefilePath, envFlatten)
 
-		@nativeIncludes = []
-		@builtOuts = []
-		@isNativeLib = false
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
 		parseMakefile(makefileBody)
-	end
-
-	def getResult(defaultVersion)
-		result = {}
-		result["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(@builtOuts.to_a[0])
-		result["version"] = defaultVersion.to_s #TODO: use defaultVersion if not found
-		result["headers"] = @nativeIncludes
-		result["libs"] = @builtOuts
-		return result
 	end
 
 	def dump
@@ -722,5 +746,5 @@ if !nativeLibsInBuiltOut.empty? then
 end
 
 reporter = reporter.new( options[:reportOutPath] )
-reporter.report( result, "libName|version|headers|libs", options )
+reporter.report( result, "libName|version|headers|libs|gcc_options", options )
 reporter.close()
