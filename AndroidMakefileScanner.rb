@@ -168,6 +168,11 @@ class AndroidMkParser < AndroidMakefileParser
 
 	DEF_OUTPUT_IDENTIFIER="LOCAL_MODULE" #Regexp.compile("LOCAL_MODULE *:=")
 	DEF_INCLUDE_IDENTIFIER="LOCAL_C_INCLUDES" #Regexp.compile("LOCAL_C_INCLUDES *(\\+|:)=")
+	DEF_CFLAGS_IDENTIFIER = [
+		"LOCAL_CPPFLAGS",
+		"LOCAL_CFLAGS",
+		"LOCAL_CONLYFLAGS"
+	]
 
 	def parseMakefile(makefileBody)
 		theLine = ""
@@ -191,6 +196,12 @@ class AndroidMkParser < AndroidMakefileParser
 					when DEF_OUTPUT_IDENTIFIER
 						@builtOuts << value if value
 					else
+						DEF_CFLAGS_IDENTIFIER.each do | aCFlags |
+							if aCFlags == key then
+								@cflags << value
+								break
+							end
+						end
 					end
 				end
 
