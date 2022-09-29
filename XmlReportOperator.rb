@@ -81,25 +81,68 @@ class AbiComplianceChecker
 		@newVer = newVer.to_s
 	end
 
+	SZ_BIN_COMPAT 	= "Binary compatibility: "
+	SZ_SRC_COMPAT 	= "Source compatibility: "
+	SZ_BIN_COMPAT2	= "Total binary compatibility problems: "
+	SZ_SRC_COMPAT2	= "Total source compatibility problems: "
+	SZ_WARNINGS		= ", warnings: "
+
+	def parseResult(result, aLine)
+		found = false
+		if aLine.start_with?(SZ_BIN_COMPAT) then
+			result[:binCompatibility] = aLine.slice(SZ_BIN_COMPAT.length, aLine.length-SZ_BIN_COMPAT.length-1).to_i
+			found = true
+		elsif aLine.start_with?(SZ_SRC_COMPAT) then
+			result[:srcCompatibility] = aLine.slice(SZ_SRC_COMPAT.length, aLine.length-SZ_SRC_COMPAT.length-1).to_i
+			found = true
+		elsif aLine.start_with?(SZ_BIN_COMPAT2) then
+			pos = aLine.index(",", SZ_BIN_COMPAT2.length)
+			pos2 = aLine.index(SZ_WARNINGS, SZ_BIN_COMPAT2.length)
+			if pos && pos2 then
+				result[:binProblem] = aLine.slice(SZ_BIN_COMPAT2.length, aLine.length-pos).to_i
+				result[:binWarning] = aLine.slice(pos2, aLine.length-pos2).to_i
+				found = true
+			end
+		elsif aLine.start_with?(SZ_SRC_COMPAT2) then
+			pos = aLine.index(",", SZ_SRC_COMPAT2.length)
+			pos2 = aLine.index(SZ_WARNINGS, SZ_SRC_COMPAT2.length)
+			if pos && pos2 then
+				result[:srcProblem] = aLine.slice(SZ_SRC_COMPAT2.length, aLine.length-pos).to_i
+				result[:srcWarning] = aLine.slice(pos2, aLine.length-pos2).to_i
+				found = true
+			end
+		end
+		return found
+	end
+
 	def execute
-		reportPath = ""
+		result = {
+			:libName=>@libName,
+			:binCompatibility=>0, 
+			:srcCompatibility=>0, 
+			:binProblem=>0, 
+			:binWarning=>0, 
+			:srcProblem=>0, 
+			:srcWarning=>0,
+			:report=>""
+		}
+
 		exec_cmd = "#{DEF_ACC} -lib #{Shellwords.escape(@libName)} -old #{Shellwords.escape(@libXmlPath1)} -new #{Shellwords.escape(@libXmlPath2)}"
 		exec_cmd = exec_cmd + " -v1 #{@oldVer}" if !@oldVer.empty?
 		exec_cmd = exec_cmd + " -v2 #{@newVer}" if !@newVer.empty?
 		exec_cmd = exec_cmd + " --gcc-path=#{Shellwords.escape(DEF_GCC_PATH)}" if DEF_GCC_PATH
 
-		puts exec_cmd
+		resultLines = ExecUtil.getExecResultEachLine(exec_cmd, @reportOutPath, false, true, true)
 
-		result = ExecUtil.getExecResultEachLine(exec_cmd, @reportOutPath, false, true, true)
+		found = false
+		resultLines.each do |aLine|
+			found = found | parseResult(result, aLine)
+		end
+		result[:report] = "#{@reportOutPath}/compat_reports/#{@libName}/#{@oldVer ? @oldVer : "X"}_to_#{@newVer ? @newVer : "Y"}/compat_report.html"
 
-		#TODO: Parse the result
-
-		reportPath = "#{@reportOutPath}/compat_reports/#{@libName}"
-		
-		return reportPath
+		return found ? result : nil
 	end
 end
-
 
 parser = XmlPerLibReporterParser
 
