@@ -19,6 +19,7 @@ require 'optparse'
 require 'rexml/document'
 require_relative 'FileUtil'
 require_relative 'ExecUtil'
+require_relative 'TaskManager.rb'
 require 'shellwords'
 
 class XmlPerLibReporterParser
@@ -144,8 +145,47 @@ class AbiComplianceChecker
 	end
 end
 
-parser = XmlPerLibReporterParser
 
+class AbiComplianceCheckerExecutor < TaskAsync
+	def initialize(resultCollector, libXmlPath1, libXmlPath2, reportOutPath, oldVer="", newVer="")
+		super("AbiComplianceCheckerTask #{libXmlPath1} #{libXmlPath2}")
+		@resultCollector = resultCollector
+		@lib = XmlPerLibReporterParser.getFilenameFromPathWithoutExt(libXmlPath1)
+		@abiChecker = AbiComplianceChecker.new(libXmlPath1, libXmlPath2, reportOutPath, oldVer, newVer)
+	end
+
+	def execute
+		puts result = @abiChecker.execute()
+		@resultCollector.onResult(@lib, result) if result && !result.empty?
+		_doneTask()
+	end
+
+end
+
+
+class ResultCollector
+	def initialize(  )
+		@result = {}
+		@_mutex = Mutex.new
+	end
+
+	def onResult( lib, result )
+		@_mutex.synchronize {
+			@result[ lib ] = result
+		}
+	end
+
+	def report()
+		@_mutex.synchronize {
+			@result.each do | aLib, aResult |
+				puts "#{aLib} : #{aResult}"
+			end
+		}
+	end
+end
+
+parser = XmlPerLibReporterParser
+resultCollector = ResultCollector.new()
 
 #---- main --------------------------
 options = {
@@ -154,6 +194,7 @@ options = {
 	:outFolder => nil,
 	:reportOutPath => ".",
 	:version => nil,
+	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
 }
 
 opt_parser = OptionParser.new do |opts|
@@ -237,7 +278,8 @@ if reports.length == 2 then
 	end
 end
 
-# Execute the common libs
+# Execute compliance checker for the common libs
+taskMan = TaskManagerAsync.new( options[:numOfThreads].to_i )
 commonKeys.each do |aLib|
 	theReportPaths = reportFilePathsPerLibName[aLib]
 	if theReportPaths.length == 2 then
@@ -249,7 +291,17 @@ commonKeys.each do |aLib|
 			newLib = commonLibs[1][aLib]
 			newVer = newLib["version"] if newLib.has_key?("version")
 		end
-		acc = AbiComplianceChecker.new( theReportPaths[0], theReportPaths[1], options[:reportOutPath], oldVer, newVer )
-		acc.execute()
+		taskMan.addTask( AbiComplianceCheckerExecutor.new(
+			resultCollector,
+			theReportPaths[0], 
+			theReportPaths[1], 
+			options[:reportOutPath], 
+			oldVer, 
+			newVer
+		))
 	end
 end
+
+taskMan.executeAll()
+taskMan.finalize()
+resultCollector.report()
