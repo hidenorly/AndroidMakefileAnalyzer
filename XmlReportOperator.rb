@@ -141,7 +141,7 @@ class AbiComplianceChecker
 		end
 		result[:report] = "#{@reportOutPath}/compat_reports/#{@libName}/#{@oldVer ? @oldVer : "X"}_to_#{@newVer ? @newVer : "Y"}/compat_report.html"
 
-		return found ? result : nil
+		return result #found ? result : nil
 	end
 end
 
@@ -239,6 +239,32 @@ class MarkdownReporter < Reporter
 end
 
 
+class CsvReporter < Reporter
+	def self.titleOut(title)
+		puts ""
+	end
+
+	def self._conv(aData, keyOutput=false, valOutput=true, firstLine=false)
+		aLine = ""
+		if aData.kind_of?(Enumerable) then
+			if aData.kind_of?(Hash) then
+				aData.each do |aKey,theVal|
+					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{aKey}" if keyOutput
+					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{theVal}" if valOutput
+				end
+			elsif aData.kind_of?(Array) then
+				aData.each do |theVal|
+					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{theVal}" if valOutput
+				end
+			end
+			puts aLine
+		else
+			puts "#{aData}"
+		end
+	end
+end
+
+
 class ResultCollector
 	def initialize(  )
 		@result = {}
@@ -275,7 +301,7 @@ reporter = MarkdownReporter
 #---- main --------------------------
 options = {
 	:verbose => false,
-	:reportFormat => "xml-perlib",
+	:reportFormat => "markdown",
 	:outFolder => nil,
 	:reportOutPath => ".",
 	:version => nil,
@@ -285,13 +311,12 @@ options = {
 opt_parser = OptionParser.new do |opts|
 	opts.banner = "Usage: usage report1 report2"
 
-	opts.on("-r", "--reportFormat=", "Specify report format markdown|csv|xml|xml-perlib (default:#{options[:reportFormat]})") do |reportFormat|
+	opts.on("-r", "--reportFormat=", "Specify report format markdown|csv (default:#{options[:reportFormat]})") do |reportFormat|
 		case reportFormat.to_s.downcase
 		when "markdown"
+			reporter = MarkdownReporter
 		when "csv"
-		when "xml"
-		when "xml-perlib"
-			parser = XmlPerLibReporterParser
+			reporter = CsvReporter
 		end
 	end
 
