@@ -46,7 +46,7 @@ class AndroidUtil
 		builtOutCache = {}
 
 		nativeLibsInBuiltOut.each do |aLibPath|
-			builtOutCache[ getFilenameFromPathWithoutSoExt( aLibPath ) ] = aLibPath if !enableOnlyFoundLibs || enableOnlyFoundLibs && File.exist?(aLibPath) && File.size?(aLibPath)>0
+			builtOutCache[ getFilenameFromPathWithoutSoExt( aLibPath ) ] = aLibPath if !enableOnlyFoundLibs || enableOnlyFoundLibs && File.exist?(aLibPath) && File.size(aLibPath).to_i>0
 		end
 
 		original.each do |aResult|
@@ -78,6 +78,7 @@ end
 class AndroidMakefileParser
 	def initialize(makefilePath, envFlatten)
 		@makefilePath = makefilePath
+		@androidRootPath = getAndroidRootPath(makefilePath)
 		@envFlatten = envFlatten
 		@isNativeLib = false
 		@env = {}
@@ -102,6 +103,51 @@ class AndroidMakefileParser
 
 	def dump
 		return ""
+	end
+
+	DEF_ANDROID_ROOT=[
+	    "/system/",
+	    "/frameworks/",
+	    "/device/",
+	    "/vendor/",
+	    "/packages/",
+	    "/external/",
+	    "/hardware/",
+	]
+
+	def getAndroidRootPath(path)
+		result = ""
+		DEF_ANDROID_ROOT.each do |aPath|
+			pos = path.index(aPath)
+			if pos then
+				result = path.slice(0, pos)
+				break
+			end
+		end
+		return result
+	end
+
+	def getRobustPath(basePath, thePath)
+		result = "#{basePath}/#{thePath}"
+		if !File.exist?(result) then
+			foundPaths = ""
+			thePaths = thePath.split("/")
+			thePaths.each do |aPath|
+				if basePath.include?(aPath) then
+					foundPaths = "#{foundPaths}/#{aPath}"
+				else
+					break
+				end
+			end
+			foundPaths = foundPaths.slice(1, foundPaths.length) if foundPaths.start_with?("/")
+			if !foundPaths.empty? then
+				remainingPath = thePath.slice( thePath.index(foundPaths)+foundPaths.length, thePath.length )
+				thePath = basePath.slice( 0, thePath.index(foundPaths) ) + remainingPath
+			end
+			result = "#{basePath}/#{thePath}"
+		end
+
+		return result
 	end
 end
 
@@ -149,6 +195,43 @@ class AndroidMkParser < AndroidMakefileParser
 		return value
 	end
 
+	DEF_INC_PATH_MAP={
+	    "camera" => "system/media/camera/include",
+	    "frameworks-base" => "frameworks/base/include",
+	    "frameworks-native" => "frameworks/native/include",
+	    "libhardware" => "hardware/libhardware/include",
+	    "libhardware_legacy" => "hardware/libhardware_legacy/include",
+	    "libril" => "hardware/ril/include",
+	    "system-core" => "system/core/include",
+	    "audio" => "system/media/audio/include",
+	    "audio-effects" => "system/media/audio_effects/include",
+	    "audio-utils" => "system/media/audio_utils/include",
+	    "audio-route" => "system/media/audio_route/include",
+	    "wilhelm" => "frameworks/wilhelm/include",
+	    "wilhelm-ut" => "frameworks/wilhelm/src/ut",
+	    "mediandk" => "frameworks/av/media/ndk/"
+	}
+
+	DEF_INC_PATH_INNER="include-path-for"
+	DEF_INC_PATH="$(call #{DEF_INC_PATH_INNER}"
+	def _include_path_for(value)
+		pos = value.index(DEF_INC_PATH)
+		if pos then
+			incValue = StrUtil.getBlacket( value, "(", ")", pos)
+			posEnd = value.index(incValue) + incValue.length + 1
+
+			pos1 = incValue.index(DEF_INC_PATH_INNER, pos)
+			if pos1 then
+				incPathArg = incValue.slice(pos1+DEF_INC_PATH_INNER.length+1, incValue.length).strip
+				if DEF_INC_PATH_MAP.has_key?(incPathArg) then
+					replaceVal = "#{@androidRootPath}/#{DEF_INC_PATH_MAP[incPathArg]}"
+					value = value.slice(0, pos).to_s + replaceVal + value.slice(posEnd, value.length).to_s
+				end
+			end
+		end
+		return value
+	end
+
 	def _envEnsure
 		@env.clone.each do |key, val|
 			@env[key] = envEnsure(val)
@@ -175,6 +258,7 @@ class AndroidMkParser < AndroidMakefileParser
 	]
 
 	def parseMakefile(makefileBody)
+		baseDir = FileUtil.getDirectoryFromPath(@makefilePath)
 		theLine = ""
 		makefileBody.each do |aLine|
 			aLine.strip!
@@ -191,7 +275,13 @@ class AndroidMkParser < AndroidMakefileParser
 					when DEF_INCLUDE_IDENTIFIER
 						val = value.to_s.split("\\").map(&:strip!)
 						val.each do |aVal|
-							@nativeIncludes << aVal if aVal
+							if aVal then
+								aVal = _include_path_for(aVal.to_s)
+								theLibIncludePath = getRobustPath(baseDir, aVal)
+								@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+								theLibIncludePath = getRobustPath(@androidRootPath, aVal)
+								@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+							end
 						end
 					when DEF_OUTPUT_IDENTIFIER
 						@builtOuts << value if value
@@ -277,26 +367,6 @@ class AndroidBpParser < AndroidMakefileParser
 		return result
 	end
 
-	def getRobustPath(basePath, thePath)
-		foundPaths = ""
-		thePaths = thePath.split("/")
-		thePaths.each do |aPath|
-			if basePath.include?(aPath) then
-				foundPaths = "#{foundPaths}/#{aPath}"
-			else
-				break
-			end
-		end
-		foundPaths = foundPaths.slice(1, foundPaths.length) if foundPaths.start_with?("/")
-		if !foundPaths.empty? then
-			remainingPath = thePath.slice( thePath.index(foundPaths)+foundPaths.length, thePath.length )
-			thePath = basePath.slice( 0, thePath.index(foundPaths) ) + remainingPath
-		end
-
-		result = "#{basePath}/#{thePath}"
-		return result
-	end
-
 	def parseMakefile(makefileBody)
 		body = removeRemark(makefileBody).join(" ")
 		baseDir = FileUtil.getDirectoryFromPath(@makefilePath)
@@ -315,13 +385,32 @@ class AndroidBpParser < AndroidMakefileParser
 				if !theLib.empty? then
 					@isNativeLib = true
 					@builtOuts << theLib[DEF_LIB_NAME] if theLib.has_key?(DEF_LIB_NAME)
+
 					DEF_INCLUDE_DIRS.each do |anIncludeIdentifier|
 						if theLib.has_key?(anIncludeIdentifier) then
 							theLib[anIncludeIdentifier].to_a.each do |anInclude|
-								@nativeIncludes << getRobustPath(baseDir, anInclude)
+								anInclude.to_s.strip!
+								anInclude = anInclude.slice(0, anInclude.length-1) if anInclude.end_with?(".")
+								if !anInclude.empty? then
+									theLibIncludePath = getRobustPath(baseDir, anInclude)
+									@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+									theLibIncludePath = getRobustPath(@androidRootPath, anInclude)
+									@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+								end
 							end
 						end
 					end
+
+					if @nativeIncludes.empty? then
+						incPaths = FileUtil.getRegExpFilteredFiles(baseDir, "\.(h|hpp)$")
+						incPaths.each do |anInc|
+							theDir = FileUtil.getDirectoryFromPath(anInc)
+							theDir = theDir.slice(0, theDir.length-1) if theDir.end_with?(".")
+							theDir = theDir.slice(0, theDir.length-1) if theDir.end_with?("/")
+							@nativeIncludes << theDir if !@nativeIncludes.include?(theDir)
+						end
+					end
+
 					if theLib.has_key?(DEF_COMPILE_OPTION) then
 						theLib[DEF_COMPILE_OPTION].to_a.each do |anOption|
 							anOption = anOption.to_s
