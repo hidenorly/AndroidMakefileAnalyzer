@@ -73,12 +73,35 @@ class AndroidUtil
 
 		return result
 	end
+
+	DEF_ANDROID_ROOT=[
+	    "/system/",
+	    "/frameworks/",
+	    "/device/",
+	    "/vendor/",
+	    "/packages/",
+	    "/external/",
+	    "/hardware/",
+	]
+
+	def self.getAndroidRootPath(path)
+		result = ""
+		DEF_ANDROID_ROOT.each do |aPath|
+			pos = path.index(aPath)
+			if pos then
+				result = path.slice(0, pos)
+				break
+			end
+		end
+		return result
+	end
 end
 
 class AndroidMakefileParser
 	def initialize(makefilePath, envFlatten)
 		@makefilePath = makefilePath
-		@androidRootPath = getAndroidRootPath(makefilePath)
+		@makefileDirectory = FileUtil.getDirectoryFromPath(makefilePath)
+		@androidRootPath = AndroidUtil.getAndroidRootPath(makefilePath)
 		@envFlatten = envFlatten
 		@isNativeLib = false
 		@env = {}
@@ -105,28 +128,6 @@ class AndroidMakefileParser
 		return ""
 	end
 
-	DEF_ANDROID_ROOT=[
-	    "/system/",
-	    "/frameworks/",
-	    "/device/",
-	    "/vendor/",
-	    "/packages/",
-	    "/external/",
-	    "/hardware/",
-	]
-
-	def getAndroidRootPath(path)
-		result = ""
-		DEF_ANDROID_ROOT.each do |aPath|
-			pos = path.index(aPath)
-			if pos then
-				result = path.slice(0, pos)
-				break
-			end
-		end
-		return result
-	end
-
 	def getRobustPath(basePath, thePath)
 		result = "#{basePath}/#{thePath}"
 		if !File.exist?(result) then
@@ -148,6 +149,40 @@ class AndroidMakefileParser
 		end
 
 		return result
+	end
+
+	DEF_NATIVE_HEADER_EXTENSION="\.(h|hpp)$"
+	DEF_NATIVE_SOURCE_EXTENSION="\.c??$"
+
+	def _isNativeHeader(path)
+		return true if path.end_with?(".h") || path.end_with?(".hpp") || path.end_with?(".hh") || path.end_with?(".h++")
+		return true if path.end_with?(".c") || path.end_with?(".cc") || path.end_with?(".cxx") || path.end_with?(".cpp")
+		return false
+	end
+
+	def ensureNativeIncludes
+		if @nativeIncludes.empty? then
+			incPaths = FileUtil.getRegExpFilteredFiles(@makefileDirectory, DEF_NATIVE_HEADER_EXTENSION)
+			incPaths = FileUtil.getRegExpFilteredFiles(@makefileDirectory, DEF_NATIVE_SOURCE_EXTENSION) if incPaths.empty?
+			incPaths.each do |anInc|
+				if _isNativeHeader(anInc) then
+					theDir = FileUtil.getDirectoryFromPath(anInc)
+					theDir = theDir.slice(0, theDir.length-1) if theDir.end_with?(".")
+					theDir = theDir.slice(0, theDir.length-1) if theDir.end_with?("/")
+					@nativeIncludes << theDir if !@nativeIncludes.include?(theDir)
+				end
+			end
+		end
+		result = []
+		@nativeIncludes.each do |anInc|
+			anInc = anInc.gsub("//", "/")
+			anInc = anInc.slice(0, anInc.length-1) if anInc.end_with?(".")
+			anInc = anInc.slice(0, anInc.length-1) if anInc.end_with?("/")
+			anInc.strip!
+			result << anInc if !anInc.empty?
+		end
+		@nativeIncludes = result
+		@nativeIncludes.uniq!
 	end
 end
 
@@ -258,7 +293,6 @@ class AndroidMkParser < AndroidMakefileParser
 	]
 
 	def parseMakefile(makefileBody)
-		baseDir = FileUtil.getDirectoryFromPath(@makefilePath)
 		theLine = ""
 		makefileBody.each do |aLine|
 			aLine.strip!
@@ -277,7 +311,7 @@ class AndroidMkParser < AndroidMakefileParser
 						val.each do |aVal|
 							if aVal then
 								aVal = _include_path_for(aVal.to_s)
-								theLibIncludePath = getRobustPath(baseDir, aVal)
+								theLibIncludePath = getRobustPath(@makefileDirectory, aVal)
 								@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
 								theLibIncludePath = getRobustPath(@androidRootPath, aVal)
 								@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
@@ -298,8 +332,9 @@ class AndroidMkParser < AndroidMakefileParser
 				theLine = ""
 			end
 		end
+
+		ensureNativeIncludes()
 		_envEnsure()
-		@nativeIncludes.uniq!
 		@builtOuts.uniq!
 		@cflags.uniq!
 	end
@@ -369,7 +404,6 @@ class AndroidBpParser < AndroidMakefileParser
 
 	def parseMakefile(makefileBody)
 		body = removeRemark(makefileBody).join(" ")
-		baseDir = FileUtil.getDirectoryFromPath(@makefilePath)
 		DEF_NATIVE_LIB_IDENTIFIER.each do |aCondition|
 			pos = body.index(aCondition)
 			if pos then
@@ -392,7 +426,7 @@ class AndroidBpParser < AndroidMakefileParser
 								anInclude.to_s.strip!
 								anInclude = anInclude.slice(0, anInclude.length-1) if anInclude.end_with?(".")
 								if !anInclude.empty? then
-									theLibIncludePath = getRobustPath(baseDir, anInclude)
+									theLibIncludePath = getRobustPath(@makefileDirectory, anInclude)
 									@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
 									theLibIncludePath = getRobustPath(@androidRootPath, anInclude)
 									@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
@@ -401,26 +435,17 @@ class AndroidBpParser < AndroidMakefileParser
 						end
 					end
 
-					if @nativeIncludes.empty? then
-						incPaths = FileUtil.getRegExpFilteredFiles(baseDir, "\.(h|hpp)$")
-						incPaths.each do |anInc|
-							theDir = FileUtil.getDirectoryFromPath(anInc)
-							theDir = theDir.slice(0, theDir.length-1) if theDir.end_with?(".")
-							theDir = theDir.slice(0, theDir.length-1) if theDir.end_with?("/")
-							@nativeIncludes << theDir if !@nativeIncludes.include?(theDir)
-						end
-					end
-
 					if theLib.has_key?(DEF_COMPILE_OPTION) then
 						theLib[DEF_COMPILE_OPTION].to_a.each do |anOption|
-							anOption = anOption.to_s
+							anOption = anOption.to_s.strip
 							@cflags << anOption if !anOption.empty?
 						end
 					end
 				end
 			end
 		end
-		@nativeIncludes.uniq!
+
+		ensureNativeIncludes()
 		@builtOuts.uniq!
 		@cflags.uniq!
 	end
