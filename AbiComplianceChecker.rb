@@ -116,6 +116,7 @@ class AbiComplianceChecker
 		return found
 	end
 
+	DEF_EXEC_TIMEOUT = 60*3 # 3min time out. TODO: Should be configurable
 	def execute
 		result = {
 			:libName=>@libName,
@@ -133,7 +134,7 @@ class AbiComplianceChecker
 		exec_cmd = exec_cmd + " -v2 #{@newVer}" if !@newVer.empty?
 		exec_cmd = exec_cmd + " --gcc-path=#{Shellwords.escape(DEF_GCC_PATH)}" if DEF_GCC_PATH
 
-		resultLines = ExecUtil.getExecResultEachLine(exec_cmd, @reportOutPath, false, true, true)
+		resultLines = ExecUtil.getExecResultEachLineWithTimeout(exec_cmd, @reportOutPath, DEF_EXEC_TIMEOUT, false, true)
 
 		found = false
 		resultLines.each do |aLine|
@@ -141,7 +142,7 @@ class AbiComplianceChecker
 		end
 		result[:report] = "#{@reportOutPath}/compat_reports/#{@libName}/#{@oldVer ? @oldVer : "X"}_to_#{@newVer ? @newVer : "Y"}/compat_report.html"
 
-		return result #found ? result : nil
+		return found ? result : nil
 	end
 end
 
@@ -415,6 +416,7 @@ end
 taskMan.executeAll()
 taskMan.finalize()
 result = resultCollector.getResult()
+result = result.sort.to_h
 theResults = []
 result.each do |libName, theResult|
 	theResults << theResult

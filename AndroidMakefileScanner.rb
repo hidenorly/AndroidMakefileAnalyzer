@@ -98,7 +98,7 @@ class AndroidUtil
 end
 
 class AndroidMakefileParser
-	def initialize(makefilePath, envFlatten)
+	def initialize(makefilePath, envFlatten, compilerFilter)
 		@makefilePath = makefilePath
 		@makefileDirectory = FileUtil.getDirectoryFromPath(makefilePath)
 		@androidRootPath = AndroidUtil.getAndroidRootPath(makefilePath)
@@ -108,6 +108,7 @@ class AndroidMakefileParser
 		@nativeIncludes = []
 		@builtOuts = []
 		@cflags = []
+		@compilerFilter = compilerFilter
 	end
 
 	def isNativeLib
@@ -183,6 +184,12 @@ class AndroidMakefileParser
 		end
 		@nativeIncludes = result
 		@nativeIncludes.uniq!
+	end
+
+	def ensureCompilerOption
+		@cflags.uniq!
+		@cflags = @compilerFilter.filterOption( @cflags )
+		@cflags.uniq!
 	end
 end
 
@@ -322,7 +329,12 @@ class AndroidMkParser < AndroidMakefileParser
 					else
 						DEF_CFLAGS_IDENTIFIER.each do | aCFlags |
 							if aCFlags == key then
-								@cflags << value
+								val = value.to_s.split("\\").map(&:strip!)
+								val.each do |aVal|
+									if aVal then
+										@cflags << aVal
+									end
+								end
 								break
 							end
 						end
@@ -336,7 +348,7 @@ class AndroidMkParser < AndroidMakefileParser
 		ensureNativeIncludes()
 		_envEnsure()
 		@builtOuts.uniq!
-		@cflags.uniq!
+		ensureCompilerOption()
 	end
 
 	DEF_NATIVE_LIB_IDENTIFIER=[
@@ -344,8 +356,8 @@ class AndroidMkParser < AndroidMakefileParser
 		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*(STATIC|SHARED)_LIBRARIES")
 	]
 
-	def initialize(makefilePath, envFlatten)
-		super(makefilePath, envFlatten)
+	def initialize(makefilePath, envFlatten, compilerFilter)
+		super(makefilePath, envFlatten, compilerFilter)
 
 		@env["call my-dir"] = FileUtil.getDirectoryFromPath(@makefilePath)
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
@@ -447,11 +459,11 @@ class AndroidBpParser < AndroidMakefileParser
 
 		ensureNativeIncludes()
 		@builtOuts.uniq!
-		@cflags.uniq!
+		ensureCompilerOption()
 	end
 
-	def initialize(makefilePath, envFlatten)
-		super(makefilePath, envFlatten)
+	def initialize(makefilePath, envFlatten, compilerFilter)
+		super(makefilePath, envFlatten, compilerFilter)
 
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
 		parseMakefile(makefileBody)
@@ -778,6 +790,50 @@ class XmlReporterPerLib < XmlReporter
 	end
 end
 
+class CompilerFilter
+	def self.filterOption(options)
+		return options
+	end
+end
+
+class CompilerFilterGcc < CompilerFilter
+	DEF_NOT_SUPPORTED_CFLAGS=[
+		"-fstandalone-debug",
+		"-Wthread-safety",
+		"-Wexit-time-destructors",
+		"-fno-c++-static-destructors",
+		"-ftrivial-auto-var-init",
+		"-funused-private-field",
+		"-fno-unused-argument",
+		"-fno-nullability-completeness",
+		"-Wshadow-",
+		"-Wno-implicit-fallthrough"
+	]
+	def self.filterOption(options)
+		result = []
+		options.each do |anOption|
+			anOption.strip!
+			DEF_NOT_SUPPORTED_CFLAGS.each do |anUnsupportedFlag|
+				if anOption.start_with?(anUnsupportedFlag) then
+					anOption = nil
+					break
+				end
+			end
+
+			result << anOption if anOption
+		end
+		result.uniq!
+		return result
+	end
+end
+
+class CompilerFilterClang < CompilerFilter
+	def self.filterOption(options)
+		return options
+	end
+end
+
+
 
 #---- main --------------------------
 options = {
@@ -788,6 +844,7 @@ options = {
 	:filterOutMatch => false,
 	:reportOutPath => nil,
 	:version => nil,
+	:compiler => "gcc"
 }
 
 reporter = XmlReporter
@@ -828,6 +885,13 @@ opt_parser = OptionParser.new do |opts|
 		options[:filterOutMatch] = true
 	end
 
+	opts.on("-c", "--compiler=", "Specify if you want to filter non supported flags. gcc|clang (default:#{options[:compiler]})") do |compiler|
+		case compiler.to_s.downcase
+		when "gcc","clang"
+			options[:compiler] = compiler
+		end
+	end
+
 	opts.on("", "--verbose", "Enable verbose status output") do
 		options[:verbose] = true
 	end
@@ -860,9 +924,11 @@ end
 
 puts makefilePaths if options[:verbose]
 
+compilerFilter = options[:compiler] == "gcc" ? CompilerFilterGcc : CompilerFilterClang
+
 result = []
 makefilePaths.each do | aMakefilePath |
-	aParser = aMakefilePath.end_with?(".mk") ? AndroidMkParser.new( aMakefilePath, options[:envFlatten] ) : AndroidBpParser.new( aMakefilePath, options[:envFlatten] )
+	aParser = aMakefilePath.end_with?(".mk") ? AndroidMkParser.new( aMakefilePath, options[:envFlatten], compilerFilter ) : AndroidBpParser.new( aMakefilePath, options[:envFlatten], compilerFilter )
 	result << aParser.getResult(options[:version]) if aParser.isNativeLib()
 end
 
