@@ -72,14 +72,16 @@ end
 class AbiComplianceChecker
 	DEF_ACC = "abi-compliance-checker"
 	DEF_GCC_PATH = ENV["PATH_GCC"]
+	DEF_EXEC_TIMEOUT = 60*3
 
-	def initialize(libXmlPath1, libXmlPath2, reportOutPath, oldVer="", newVer="")
+	def initialize(libXmlPath1, libXmlPath2, reportOutPath, oldVer="", newVer="", timeOut=DEF_EXEC_TIMEOUT)
 		@libXmlPath1 = File.expand_path(libXmlPath1)
 		@libXmlPath2 = File.expand_path(libXmlPath2)
 		@reportOutPath = reportOutPath
 		@libName = XmlPerLibReporterParser.getFilenameFromPathWithoutExt(libXmlPath1)
 		@oldVer = oldVer.to_s
 		@newVer = newVer.to_s
+		@timeOut = timeOut
 	end
 
 	SZ_BIN_COMPAT 	= "Binary compatibility: "
@@ -116,7 +118,6 @@ class AbiComplianceChecker
 		return found
 	end
 
-	DEF_EXEC_TIMEOUT = 60*3 # 3min time out. TODO: Should be configurable
 	def execute
 		result = {
 			:libName=>@libName,
@@ -134,7 +135,7 @@ class AbiComplianceChecker
 		exec_cmd = exec_cmd + " -v2 #{@newVer}" if !@newVer.empty?
 		exec_cmd = exec_cmd + " --gcc-path=#{Shellwords.escape(DEF_GCC_PATH)}" if DEF_GCC_PATH
 
-		resultLines = ExecUtil.getExecResultEachLineWithTimeout(exec_cmd, @reportOutPath, DEF_EXEC_TIMEOUT, false, true)
+		resultLines = ExecUtil.getExecResultEachLineWithTimeout(exec_cmd, @reportOutPath, @timeOut, false, true)
 
 		found = false
 		resultLines.each do |aLine|
@@ -148,11 +149,11 @@ end
 
 
 class AbiComplianceCheckerExecutor < TaskAsync
-	def initialize(resultCollector, libXmlPath1, libXmlPath2, reportOutPath, oldVer="", newVer="")
+	def initialize(resultCollector, libXmlPath1, libXmlPath2, reportOutPath, oldVer="", newVer="", timeOut)
 		super("AbiComplianceCheckerTask #{libXmlPath1} #{libXmlPath2}")
 		@resultCollector = resultCollector
 		@lib = XmlPerLibReporterParser.getFilenameFromPathWithoutExt(libXmlPath1)
-		@abiChecker = AbiComplianceChecker.new(libXmlPath1, libXmlPath2, reportOutPath, oldVer, newVer)
+		@abiChecker = AbiComplianceChecker.new(libXmlPath1, libXmlPath2, reportOutPath, oldVer, newVer, timeOut)
 	end
 
 	def execute
@@ -306,6 +307,7 @@ options = {
 	:outFolder => nil,
 	:reportOutPath => ".",
 	:version => nil,
+	:execTimeOut => 60*3,
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
 }
 
@@ -321,9 +323,14 @@ opt_parser = OptionParser.new do |opts|
 		end
 	end
 
-	opts.on("-o", "--reportOutPath=", "Specify report outpit path(default:#{options[:reportOutPath]})") do |reportOutPath|
+	opts.on("-o", "--reportOutPath=", "Specify report output path(default:#{options[:reportOutPath]})") do |reportOutPath|
 		options[:reportOutPath] = reportOutPath
 		FileUtil.ensureDirectory( reportOutPath )
+	end
+
+	opts.on("-t", "--execTimeOut=", "Specify exection time out [sec] (default:#{options[:execTimeOut]})") do |execTimeOut|
+		execTimeOut = execTimeOut.to_i
+		options[:execTimeOut] = execTimeOut if execTimeOut
 	end
 
 	opts.on("", "--verbose", "Enable verbose status output") do
@@ -408,7 +415,8 @@ commonKeys.each do |aLib|
 			theReportPaths[1], 
 			options[:reportOutPath], 
 			oldVer, 
-			newVer
+			newVer,
+			options[:execTimeOut]
 		))
 	end
 end
