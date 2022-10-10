@@ -333,6 +333,11 @@ opt_parser = OptionParser.new do |opts|
 		options[:execTimeOut] = execTimeOut if execTimeOut
 	end
 
+	opts.on("-j", "--numOfThreads=", "Specify number of threads to analyze (default:#{options[:numOfThreads]})") do |numOfThreads|
+		numOfThreads = numOfThreads.to_i
+		options[:numOfThreads] = numOfThreads if numOfThreads
+	end
+
 	opts.on("", "--verbose", "Enable verbose status output") do
 		options[:verbose] = true
 	end
