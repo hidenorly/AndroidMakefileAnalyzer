@@ -20,6 +20,7 @@ require 'shellwords'
 require 'json'
 require_relative 'FileUtil'
 require_relative 'StrUtil'
+require_relative 'TaskManager.rb'
 
 class AndroidUtil
 	DEF_ANDROID_MAKEFILES = [
@@ -834,6 +835,54 @@ class CompilerFilterClang < CompilerFilter
 end
 
 
+class ResultCollector
+	def initialize(  )
+		@result = {}
+		@_mutex = Mutex.new
+	end
+
+	def onResult( lib, result )
+		@_mutex.synchronize {
+			@result[ lib ] = result
+		}
+	end
+
+	def report()
+		@_mutex.synchronize {
+			@result.each do | aLib, aResult |
+				puts "#{aLib} : #{aResult}"
+			end
+		}
+	end
+
+	def getResult()
+		result = nil
+		@_mutex.synchronize {
+			result = @result.clone()
+		}
+		return result
+	end
+end
+
+class AndroidMakefileParserExecutor < TaskAsync
+	def initialize(resultCollector, makefilePath, version, envFlatten, compilerFilter)
+		super("AndroidMakefileParserExecutor #{makefilePath}")
+		@resultCollector = resultCollector
+		@makefilePath = makefilePath
+		@version = version
+		@envFlatten = envFlatten
+		@compilerFilter = compilerFilter
+	end
+
+	def execute
+		parser = @makefilePath.end_with?(".mk") ? AndroidMkParser.new( @makefilePath, @envFlatten, @compilerFilter ) : AndroidBpParser.new( @makefilePath, @envFlatten, @compilerFilter )
+		result = parser.getResult(@version) if parser.isNativeLib()
+		@resultCollector.onResult(@makefilePath, result) if result && !result.empty?
+		_doneTask()
+	end
+
+end
+
 
 #---- main --------------------------
 options = {
@@ -844,10 +893,12 @@ options = {
 	:filterOutMatch => false,
 	:reportOutPath => nil,
 	:version => nil,
-	:compiler => "gcc"
+	:compiler => "gcc",
+	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
 }
 
 reporter = XmlReporter
+resultCollector = ResultCollector.new()
 
 opt_parser = OptionParser.new do |opts|
 	opts.banner = "Usage: usage ANDROID_HOME"
@@ -892,6 +943,11 @@ opt_parser = OptionParser.new do |opts|
 		end
 	end
 
+	opts.on("-j", "--numOfThreads=", "Specify number of threads to analyze (default:#{options[:numOfThreads]})") do |numOfThreads|
+		numOfThreads = numOfThreads.to_i
+		options[:numOfThreads] = numOfThreads if numOfThreads
+	end
+
 	opts.on("", "--verbose", "Enable verbose status output") do
 		options[:verbose] = true
 	end
@@ -927,9 +983,16 @@ puts makefilePaths if options[:verbose]
 compilerFilter = options[:compiler] == "gcc" ? CompilerFilterGcc : CompilerFilterClang
 
 result = []
+taskMan = TaskManagerAsync.new( options[:numOfThreads].to_i )
 makefilePaths.each do | aMakefilePath |
-	aParser = aMakefilePath.end_with?(".mk") ? AndroidMkParser.new( aMakefilePath, options[:envFlatten], compilerFilter ) : AndroidBpParser.new( aMakefilePath, options[:envFlatten], compilerFilter )
-	result << aParser.getResult(options[:version]) if aParser.isNativeLib()
+	taskMan.addTask( AndroidMakefileParserExecutor.new( resultCollector, aMakefilePath, options[:version], options[:envFlatten], compilerFilter ) )
+end
+taskMan.executeAll()
+taskMan.finalize()
+_result = resultCollector.getResult()
+
+_result.each do | makefilePath, theResult |
+	result << theResult
 end
 
 if !nativeLibsInBuiltOut.empty? then
