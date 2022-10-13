@@ -983,7 +983,7 @@ puts makefilePaths if options[:verbose]
 compilerFilter = options[:compiler] == "gcc" ? CompilerFilterGcc : CompilerFilterClang
 
 result = []
-taskMan = TaskManagerAsync.new( options[:numOfThreads].to_i )
+taskMan = ThreadPool.new( options[:numOfThreads].to_i )
 makefilePaths.each do | aMakefilePath |
 	taskMan.addTask( AndroidMakefileParserExecutor.new( resultCollector, aMakefilePath, options[:version], options[:envFlatten], compilerFilter ) )
 end

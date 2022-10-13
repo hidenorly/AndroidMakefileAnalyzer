@@ -1,4 +1,4 @@
-#  Copyright (C) 2021 hidenorly
+#  Copyright (C) 2021, 2022 hidenorly
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -173,5 +173,146 @@ class TaskManagerAsync < TaskManager
 		numOfProcessor=4 if !numOfProcessor || 0 == numOfProcessor
 
 		return numOfProcessor
+	end
+end
+
+
+class TaskPool
+	def initialize
+		@criticalSection = Mutex.new
+		@tasks = []
+	end
+
+	def enqueue(task)
+		@criticalSection.synchronize {
+			@tasks << task
+		}
+	end
+
+	def dequeue
+		result = nil
+		@criticalSection.synchronize {
+			result = @tasks.shift
+		}
+		return result
+	end
+
+	def erase(task)
+		@criticalSection.synchronize {
+			@tasks.delete(task)
+		}
+	end
+
+	def clear
+		@criticalSection.synchronize {
+			@tasks = []
+		}
+	end
+
+	def isEmpty
+		return @tasks.empty?
+	end
+end
+
+class TaskExecutor
+	def initialize(taskPool)
+		@taskPool = taskPool
+		@thread = nil
+		@criticalSection = Mutex.new
+		@isRunnable = false
+	end
+
+	def execute
+		@isRunnable = true
+		if @thread == nil then
+			@criticalSection.synchronize {
+				@thread = Thread.new do
+					while(@isRunnable) do
+						@task = @taskPool.dequeue()
+						if @task!=nil then
+							@task.execute()
+						else
+							sleep 0.1
+						end
+					end
+					@thread = nil
+				end
+			}
+			@task = nil
+		end
+	end
+
+	def terminate
+		@isRunnable = false
+		@criticalSection.synchronize {
+			if @thread != nil then
+				@thread.join
+				@thread = nil
+			end
+		}
+	end
+
+	def cancelTaskIfRunning(task)
+		if @task==task then
+			isRunnable = @isRunnable
+			terminate()
+			execute() if isRunnable
+		end
+	end
+
+	def isRunning
+		return @thread != nil
+	end
+end
+
+class ThreadPool
+	def initialize(numOfThreads=TaskManagerAsync.getNumberOfProcessor())
+		@taskPool = TaskPool.new()
+		@threads = []
+		for i in 0..numOfThreads do
+			@threads << TaskExecutor.new(@taskPool)
+		end
+	end
+
+	def addTask(task)
+		@taskPool.enqueue(task)
+	end
+
+	def cancelTask(task)
+		@taskPool.erase(task)
+	end
+
+	def executeAll
+		@threads.each do |aTaskExecutor|
+			aTaskExecutor.execute()
+		end
+	end
+
+	def isRemainingTasks
+		return !@taskPool.isEmpty()
+	end
+
+	def isRunning
+		result = false
+		@threads.each do |aTaskExecutor|
+			result = result | aTaskExecutor.isRunning()
+		end
+		return result
+	end
+
+	def finalize
+		while isRemainingTasks() do
+			if ( isRunning() ) then
+				sleep 0.1
+			end
+		end
+		terminate()
+	end
+
+	def terminate
+		@taskPool.clear()
+		@threads.each do |aTaskExecutor|
+			aTaskExecutor.terminate()
+		end
 	end
 end
