@@ -18,9 +18,68 @@ require 'fileutils'
 require 'optparse'
 require 'shellwords'
 require 'json'
+require 'rexml/document'
 require_relative 'FileUtil'
 require_relative 'StrUtil'
 require_relative 'TaskManager.rb'
+
+class RepoUtil
+	DEF_MANIFESTFILE = "manifest.xml"
+	DEF_MANIFESTFILE_DIRS = [
+		"/.repo/",
+		"/.repo/manifests/"
+	]
+
+	def self.getAvailableManifestPath(basePath, manifestFilename)
+		DEF_MANIFESTFILE_DIRS.each do |aDir|
+			path = basePath + aDir.to_s + manifestFilename
+			if FileTest.exist?(path) then
+				return path
+			end
+		end
+		return nil
+	end
+
+	def self.getPathesFromManifestSub(basePath, manifestFilename, pathes, pathFilter, groupFilter)
+		manifestPath = getAvailableManifestPath(basePath, manifestFilename)
+		if manifestPath && FileTest.exist?(manifestPath) then
+			doc = REXML::Document.new(open(manifestPath))
+			doc.elements.each("manifest/include[@name]") do |anElement|
+				getPathesFromManifestSub(basePath, anElement.attributes["name"], pathes, pathFilter, groupFilter)
+			end
+			doc.elements.each("manifest/project[@path]") do |anElement|
+				theGitPath = anElement.attributes["path"].to_s
+				if pathFilter.empty? || ( !pathFilter.to_s.empty? && theGitPath.match( pathFilter.to_s ) ) then
+					theGroups = anElement.attributes["groups"].to_s
+					if theGroups.empty? || groupFilter.empty? || ( !groupFilter.to_s.empty? && theGroups.match( groupFilter.to_s ) ) then
+						pathes << "#{basePath}/#{theGitPath}"
+					end
+				end
+			end
+		end
+	end
+
+	def self.getPathesFromManifest(basePath, pathFilter="", groupFilter="")
+		pathes = []
+		getPathesFromManifestSub(basePath, DEF_MANIFESTFILE, pathes, pathFilter, groupFilter)
+
+		return pathes
+	end
+end
+
+class MakefileScannerTask < TaskAsync
+	def initialize(resultCollector, gitPath)
+		super("MakefileScannerTask #{gitPath}")
+		@resultCollector = resultCollector
+		@gitPath = gitPath
+	end
+
+	def execute
+		result = FileUtil.getRegExpFilteredFiles(@gitPath, "Android\.(mk|bp)$")
+		@resultCollector.onResult(@gitPath, result) if result && !result.empty?
+		_doneTask()
+	end
+end
 
 class AndroidUtil
 	DEF_ANDROID_MAKEFILES = [
@@ -28,7 +87,25 @@ class AndroidUtil
 		"Android.bp",
 	]
 	def self.getListOfAndroidMakefile(imagePath)
-		return FileUtil.getRegExpFilteredFiles(imagePath, "Android\.(mk|bp)$")
+		result = []
+
+		gitPaths = RepoUtil.getPathesFromManifest(imagePath)
+		gitPaths = [imagePath] if gitPaths.empty?
+
+		resultCollector = ResultCollector.new()
+		taskMan = ThreadPool.new(2)
+		gitPaths.each do | aGitPath |
+			taskMan.addTask( MakefileScannerTask.new( resultCollector, aGitPath ) )
+		end
+		taskMan.executeAll()
+		taskMan.finalize()
+		_result = resultCollector.getResult()
+		_result.each do | aGitPath, theResults |
+			result = result | theResults
+		end
+		result.uniq!
+
+		return result
 	end
 
 	def self.getListOfNativeLibsInBuiltOut(builtOutPath)
@@ -868,7 +945,7 @@ class AndroidMakefileParserExecutor < TaskAsync
 	def initialize(resultCollector, makefilePath, version, envFlatten, compilerFilter)
 		super("AndroidMakefileParserExecutor #{makefilePath}")
 		@resultCollector = resultCollector
-		@makefilePath = makefilePath
+		@makefilePath = makefilePath.to_s
 		@version = version
 		@envFlatten = envFlatten
 		@compilerFilter = compilerFilter
@@ -880,7 +957,6 @@ class AndroidMakefileParserExecutor < TaskAsync
 		@resultCollector.onResult(@makefilePath, result) if result && !result.empty?
 		_doneTask()
 	end
-
 end
 
 
@@ -991,8 +1067,8 @@ taskMan.executeAll()
 taskMan.finalize()
 _result = resultCollector.getResult()
 
-_result.each do | makefilePath, theResult |
-	result << theResult
+_result.each do | makefilePath, theResults |
+	result << theResults
 end
 
 if !nativeLibsInBuiltOut.empty? then
