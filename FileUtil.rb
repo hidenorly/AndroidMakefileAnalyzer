@@ -13,6 +13,7 @@
 # limitations under the License.
 
 require_relative "StrUtil"
+require_relative "TaskManager"
 
 class FileUtil
 	def self.ensureDirectory(path)
@@ -115,6 +116,36 @@ class FileUtil
 	def self.getRegExpFilteredFiles(basePath, fileFilter)
 		result=[]
 		iteratePath(basePath, fileFilter, result, true, false)
+
+		return result
+	end
+
+	class FileScannerTask < TaskAsync
+		def initialize(resultCollector, path, fileFilter)
+			super("FileScannerTask #{path}")
+			@resultCollector = resultCollector
+			@path = path
+			@fileFilter = fileFilter
+		end
+
+		def execute
+			result = FileUtil.getRegExpFilteredFiles(@path, @fileFilter)
+			@resultCollector.onResult(@path, result) if result && !result.empty?
+			_doneTask()
+		end
+	end
+
+	def self.getRegExpFilteredFilesMT(paths, fileFilter)
+		resultCollector = ResultCollector.new()
+		taskMan = ThreadPool.new(2)
+		paths.to_a.each do | aPath |
+			taskMan.addTask( FileScannerTask.new( resultCollector, aPath, fileFilter ) )
+		end
+		taskMan.executeAll()
+		taskMan.finalize()
+
+		result = resultCollector.getResult()
+		result.uniq!
 
 		return result
 	end
@@ -261,3 +292,5 @@ class FileStream < Stream
 		return @io ? @io.readlines : []
 	end
 end
+
+

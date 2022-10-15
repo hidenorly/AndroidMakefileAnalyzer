@@ -67,43 +67,16 @@ class RepoUtil
 	end
 end
 
-class MakefileScannerTask < TaskAsync
-	def initialize(resultCollector, gitPath)
-		super("MakefileScannerTask #{gitPath}")
-		@resultCollector = resultCollector
-		@gitPath = gitPath
-	end
-
-	def execute
-		result = FileUtil.getRegExpFilteredFiles(@gitPath, "Android\.(mk|bp)$")
-		@resultCollector.onResult(@gitPath, result) if result && !result.empty?
-		_doneTask()
-	end
-end
-
 class AndroidUtil
 	DEF_ANDROID_MAKEFILES = [
 		"Android.mk",
 		"Android.bp",
 	]
 	def self.getListOfAndroidMakefile(imagePath)
-		result = []
-
 		gitPaths = RepoUtil.getPathesFromManifest(imagePath)
 		gitPaths = [imagePath] if gitPaths.empty?
 
-		resultCollector = ResultCollector.new()
-		taskMan = ThreadPool.new(2)
-		gitPaths.each do | aGitPath |
-			taskMan.addTask( MakefileScannerTask.new( resultCollector, aGitPath ) )
-		end
-		taskMan.executeAll()
-		taskMan.finalize()
-		_result = resultCollector.getResult()
-		_result.each do | aGitPath, theResults |
-			result = result | theResults
-		end
-		result.uniq!
+		result = FileUtil.getRegExpFilteredFilesMT(gitPaths, "Android\.(bp|mk)")
 
 		return result
 	end
@@ -912,35 +885,6 @@ class CompilerFilterClang < CompilerFilter
 end
 
 
-class ResultCollector
-	def initialize(  )
-		@result = {}
-		@_mutex = Mutex.new
-	end
-
-	def onResult( lib, result )
-		@_mutex.synchronize {
-			@result[ lib ] = result
-		}
-	end
-
-	def report()
-		@_mutex.synchronize {
-			@result.each do | aLib, aResult |
-				puts "#{aLib} : #{aResult}"
-			end
-		}
-	end
-
-	def getResult()
-		result = nil
-		@_mutex.synchronize {
-			result = @result.clone()
-		}
-		return result
-	end
-end
-
 class AndroidMakefileParserExecutor < TaskAsync
 	def initialize(resultCollector, makefilePath, version, envFlatten, compilerFilter)
 		super("AndroidMakefileParserExecutor #{makefilePath}")
@@ -974,7 +918,7 @@ options = {
 }
 
 reporter = XmlReporter
-resultCollector = ResultCollector.new()
+resultCollector = ResultCollectorHash.new()
 
 opt_parser = OptionParser.new do |opts|
 	opts.banner = "Usage: usage ANDROID_HOME"
