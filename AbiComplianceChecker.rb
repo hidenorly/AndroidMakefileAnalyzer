@@ -267,37 +267,8 @@ class CsvReporter < Reporter
 end
 
 
-class ResultCollector
-	def initialize(  )
-		@result = {}
-		@_mutex = Mutex.new
-	end
-
-	def onResult( lib, result )
-		@_mutex.synchronize {
-			@result[ lib ] = result
-		}
-	end
-
-	def report()
-		@_mutex.synchronize {
-			@result.each do | aLib, aResult |
-				puts "#{aLib} : #{aResult}"
-			end
-		}
-	end
-
-	def getResult()
-		result = nil
-		@_mutex.synchronize {
-			result = @result.clone()
-		}
-		return result
-	end
-end
-
 parser = XmlPerLibReporterParser
-resultCollector = ResultCollector.new()
+resultCollector = ResultCollectorHash.new()
 reporter = MarkdownReporter
 
 #---- main --------------------------
