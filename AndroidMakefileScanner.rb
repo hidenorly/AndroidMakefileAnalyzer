@@ -81,45 +81,66 @@ class AndroidUtil
 		return result
 	end
 
-	def self.getListOfNativeLibsInBuiltOut(builtOutPath)
-		return FileUtil.getRegExpFilteredFiles(builtOutPath, "\.(so|a)$")
+	def self.getListOfBuiltOuts(builtOutPath)
+		return FileUtil.getRegExpFilteredFiles(builtOutPath, "\.(so|a|apk|jar|apex)$")
 	end
 
-	def self.getFilenameFromPathWithoutSoExt( path )
+	DEF_BUILTS_OUT_EXTS=[
+		".so",
+		".apk",
+		".jar",
+		".apex"
+	]
+	def self.getFilenameFromPathWithoutExt( path )
+		path = path.to_s
 		path = FileUtil.getFilenameFromPath(path)
-		pos = path.to_s.rindex(".so")
-		path = pos ? path.slice(0, pos) : path
+		DEF_BUILTS_OUT_EXTS.each do |anExt|
+			pos = path.to_s.rindex(anExt)
+			if pos then
+				path = path.slice(0, pos)
+				break
+			end
+		end
 		return path
 	end
 
-	def self.replaceLibPathWithBuiltOuts( original, nativeLibsInBuiltOut, enableOnlyFoundLibs = false )
+	def self.replaceLibPathWithBuiltOuts( original, builtOuts, enableOnlyFoundBuiltOuts = false )
 		result = []
 		builtOutCache = {}
 
-		nativeLibsInBuiltOut.each do |aLibPath|
-			builtOutCache[ getFilenameFromPathWithoutSoExt( aLibPath ) ] = aLibPath if !enableOnlyFoundLibs || enableOnlyFoundLibs && File.exist?(aLibPath) && File.size(aLibPath).to_i>0
+		builtOuts.each do |aPath|
+			builtOutCache[ getFilenameFromPathWithoutExt( aPath ) ] = aPath if !enableOnlyFoundBuiltOuts || enableOnlyFoundBuiltOuts && File.exist?(aPath) && File.size(aPath).to_i>0
 		end
 
 		original.each do |aResult|
-			foundLib = false
-			if aResult.has_key?("libs") then
-				libs = aResult["libs"]
-				replacedLibs = []
-				libs.to_a.each do |aLib|
-					key = getFilenameFromPathWithoutSoExt(aLib)
+			found = false
+			targets = []
+			targets = targets | aResult["libs"] if aResult.has_key?("libs")
+			targets = targets | targets = aResult["apkName"] if aResult.has_key?("apkName")
+
+			if !targets.empty? then
+				replacedResults = []
+				targets.to_a.each do |anTarget|
+					key = getFilenameFromPathWithoutExt(anTarget)
 					if builtOutCache.has_key?( key ) then
-						foundLib = true
-						replacedLibs << builtOutCache[key]
+						found = true
+						replacedResults << builtOutCache[key]
 					else
-						replacedLibs << aLib if !enableOnlyFoundLibs
+						replacedResults << anTarget if !enableOnlyFoundBuiltOuts
 					end
 				end
-				aResult["libs"] = replacedLibs
+				aResult["libs"] = []
+				aResult["apkName"] = []
+				replacedResults.each do | aReplacedResult|
+					aResult["libs"] << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a")
+					aResult["apkName"] << aReplacedResult if aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
+				end
 			end
 
-			aResult["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(aResult["libs"].to_a[0]) if !aResult["libs"].to_a.empty?
+			aResult["libName"] = getFilenameFromPathWithoutExt(aResult["libs"].to_a[0]) if !aResult["libs"].to_a.empty?
+			aResult["apkName"] = getFilenameFromPathWithoutExt(aResult["apkName"].to_a[0]) if !aResult["apkName"].to_a.empty?
 
-			result << aResult if !enableOnlyFoundLibs || foundLib
+			result << aResult if !enableOnlyFoundBuiltOuts || found
 		end
 
 		return result
@@ -155,24 +176,41 @@ class AndroidMakefileParser
 		@androidRootPath = AndroidUtil.getAndroidRootPath(makefilePath)
 		@envFlatten = envFlatten
 		@isNativeLib = false
+		@isApk = false
 		@env = {}
 		@nativeIncludes = []
 		@builtOuts = []
 		@cflags = []
 		@compilerFilter = compilerFilter
+		@apkName = []
+		@certificate = []
+		@dexPreOpt = []
 	end
 
 	def isNativeLib
 		return @isNativeLib
 	end
 
+	def isApk
+		return @isApk
+	end
+
 	def getResult(defaultVersion)
 		result = {}
-		result["libName"] = AndroidUtil.getFilenameFromPathWithoutSoExt(@builtOuts.to_a[0])
-		result["version"] = defaultVersion.to_s #TODO: get version and use it if it's not specified
-		result["headers"] = @nativeIncludes.uniq
-		result["libs"] = @builtOuts.uniq
-		result["gcc_options"] = @cflags.uniq
+		if @isNativeLib then
+			result["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(@builtOuts.to_a[0])
+			result["version"] = defaultVersion.to_s #TODO: get version and use it if it's not specified
+			result["headers"] = @nativeIncludes.uniq
+			result["libs"] = @builtOuts.uniq
+			result["gcc_options"] = @cflags.uniq
+		end
+		if @isApk then
+			if !@apkName.empty? then
+				result["apkName"] = @apkName
+				result["certificate"] = @certificate
+				result["dexPreOpt"] = @dexPreOpt
+			end
+		end
 		return result
 	end
 
@@ -350,6 +388,10 @@ class AndroidMkParser < AndroidMakefileParser
 		"LOCAL_CONLYFLAGS"
 	]
 
+	DEF_APK_PACKAGE_NAME_IDENTIFIER = "LOCAL_PACKAGE_NAME"
+	DEF_APK_CERTIFICATE_IDENTIFIER = "LOCAL_CERTIFICATE"
+	DEF_DEX_PREOPT_IDENTIFIER = "LOCAL_DEX_PREOPT"
+
 	def parseMakefile(makefileBody)
 		theLine = ""
 		makefileBody.each do |aLine|
@@ -377,6 +419,15 @@ class AndroidMkParser < AndroidMakefileParser
 						end
 					when DEF_OUTPUT_IDENTIFIER
 						@builtOuts << value if value
+					when DEF_DEX_PREOPT_IDENTIFIER
+						@dexPreOpt << value if value
+						@isApk = true
+					when DEF_APK_PACKAGE_NAME_IDENTIFIER
+						@apkName << value if value
+						@isApk = true
+					when DEF_APK_CERTIFICATE_IDENTIFIER
+						@certificate << value if value
+						@isApk = true
 					else
 						DEF_CFLAGS_IDENTIFIER.each do | aCFlags |
 							if aCFlags == key then
@@ -406,21 +457,32 @@ class AndroidMkParser < AndroidMakefileParser
 		Regexp.compile("\(BUILD_(STATIC|SHARED)_LIBRARY\)"),
 		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*(STATIC|SHARED)_LIBRARIES")
 	]
+	DEF_APK_IDENTIFIER=[
+		Regexp.compile("\(BUILD_PACKAGE\)"),
+		#Regexp.compile("\(BUILD_CTS_PACKAGE\)"),
+		#Regexp.compile("\(BUILD_STATIC_JAVA_LIBRARY\)"),
+		#Regexp.compile("\(BUILD_JAVA_LIBRARY\)"),
+		Regexp.compile("\(BUILD_PREBUILT\)"),
+		Regexp.compile("\(BUILD_RRO_PACKAGE\)"),
+		Regexp.compile("\(BUILD_PHONY_PACKAGE\)")
+	]
 
 	def initialize(makefilePath, envFlatten, compilerFilter)
 		super(makefilePath, envFlatten, compilerFilter)
 
 		@env["call my-dir"] = FileUtil.getDirectoryFromPath(@makefilePath)
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
-		DEF_NATIVE_LIB_IDENTIFIER.each do | aCondition |
+		targetIdentifiers = DEF_NATIVE_LIB_IDENTIFIER | DEF_APK_IDENTIFIER
+		targetIdentifiers.each do | aCondition |
 			result = makefileBody.grep(aCondition)
 			if !result.empty? then
 				# found native lib
-				@isNativeLib = true
-				break
+				@isNativeLib = true if DEF_NATIVE_LIB_IDENTIFIER.include?(aCondition)
+				@isApk = true if DEF_APK_IDENTIFIER.include?(aCondition)
+				#break
 			end
 		end
-		parseMakefile(makefileBody) if @isNativeLib
+		parseMakefile(makefileBody) if @isNativeLib || @isApk
 	end
 
 	def dump
@@ -449,6 +511,28 @@ class AndroidBpParser < AndroidMakefileParser
 
 	DEF_COMPILE_OPTION = "cflags"
 
+	DEF_APK_IDENTIFIER = [
+		"android_app",
+		"android_app_import"
+	]
+	DEF_APK_NAME_IDENTIFIER = "name"
+	DEF_APK_DEFAULTS_IDENTIFIER = "defaults" # [], makefile base
+	DEF_APK_DEPENDENCIES_IDENTIFIER = [
+		"static_libs" # []
+	]
+	DEF_APK_CERTIFICATE_IDENTIFIER = "certificate"
+	DEF_APK_PRIVILEGED_IDENTIFIER = "privileged"
+	DEF_APK_PLATFORM_API_IDENTIFIER = "platform_apis"
+
+	DEF_DEX_PREOPT_IDENTIFIER = "dex_preopt"
+	DEF_DEX_PREOPT_ENABLED_IDENTIFIER = "enabled"
+
+	DEF_JAR_IDENTIFIER = [
+		"java_library_static",
+		"java_library",
+		"java_sdk_library"
+	]
+
 	def ensureJson(body)
 		return "{ #{body} }".gsub(/(\w+)\s*:/, '"\1":').gsub(/,(?= *\])/, '').gsub(/,(?= *\})/, '')
 	end
@@ -467,41 +551,63 @@ class AndroidBpParser < AndroidMakefileParser
 
 	def parseMakefile(makefileBody)
 		body = removeRemark(makefileBody).join(" ")
-		DEF_NATIVE_LIB_IDENTIFIER.each do |aCondition|
+
+		targetIdentifier = DEF_APK_IDENTIFIER | DEF_NATIVE_LIB_IDENTIFIER
+
+		targetIdentifier.each do |aCondition|
 			pos = body.index(aCondition)
 			if pos then
 				theBody = StrUtil.getBlacket(body, "{", "}", pos)
 				ensuredJson = ensureJson(theBody)
 
-				theLib = {}
+				theBp = {}
 				begin
-					theLib = JSON.parse(ensuredJson)
+					theBp = JSON.parse(ensuredJson)
 				rescue => ex
 
 				end
-				if !theLib.empty? then
-					@isNativeLib = true
-					@builtOuts << theLib[DEF_LIB_NAME] if theLib.has_key?(DEF_LIB_NAME)
+				if !theBp.empty? then
+					@builtOuts << theBp[DEF_LIB_NAME] if theBp.has_key?(DEF_LIB_NAME)
 
-					DEF_INCLUDE_DIRS.each do |anIncludeIdentifier|
-						if theLib.has_key?(anIncludeIdentifier) then
-							theLib[anIncludeIdentifier].to_a.each do |anInclude|
-								anInclude.to_s.strip!
-								anInclude = anInclude.slice(0, anInclude.length-1) if anInclude.end_with?(".")
-								if !anInclude.empty? then
-									theLibIncludePath = getRobustPath(@makefileDirectory, anInclude)
-									@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
-									theLibIncludePath = getRobustPath(@androidRootPath, anInclude)
-									@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+					if DEF_NATIVE_LIB_IDENTIFIER.include?(aCondition) then
+						@isNativeLib = true
+						DEF_INCLUDE_DIRS.each do |anIncludeIdentifier|
+							if theBp.has_key?(anIncludeIdentifier) then
+								theBp[anIncludeIdentifier].to_a.each do |anInclude|
+									anInclude.to_s.strip!
+									anInclude = anInclude.slice(0, anInclude.length-1) if anInclude.end_with?(".")
+									if !anInclude.empty? then
+										theLibIncludePath = getRobustPath(@makefileDirectory, anInclude)
+										@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+										theLibIncludePath = getRobustPath(@androidRootPath, anInclude)
+										@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+									end
 								end
+							end
+						end
+
+						if theBp.has_key?(DEF_COMPILE_OPTION) then
+							theBp[DEF_COMPILE_OPTION].to_a.each do |anOption|
+								anOption = anOption.to_s.strip
+								@cflags << anOption if !anOption.empty?
 							end
 						end
 					end
 
-					if theLib.has_key?(DEF_COMPILE_OPTION) then
-						theLib[DEF_COMPILE_OPTION].to_a.each do |anOption|
-							anOption = anOption.to_s.strip
-							@cflags << anOption if !anOption.empty?
+					if DEF_APK_IDENTIFIER.include?(aCondition) then
+						@isApk = true
+						if theBp.has_key?(DEF_DEX_PREOPT_IDENTIFIER) then
+							val = theBp[DEF_DEX_PREOPT_IDENTIFIER]
+							if val.has_key?(DEF_DEX_PREOPT_ENABLED_IDENTIFIER) then
+								enabled = val[DEF_DEX_PREOPT_ENABLED_IDENTIFIER].to_s
+								@dexPreOpt << enabled if !enabled.empty?
+							end
+						elsif theBp.has_key?(DEF_APK_NAME_IDENTIFIER) then
+							val = theBp[DEF_APK_NAME_IDENTIFIER].to_s
+							@apkName << val if !val.empty?
+						elsif theBp.has_key?(DEF_APK_CERTIFICATE_IDENTIFIER) then
+							val = theBp[DEF_APK_CERTIFICATE_IDENTIFIER].to_s
+							@certificate << val if !val.empty?
 						end
 					end
 				end
@@ -826,17 +932,27 @@ class XmlReporterPerLib < XmlReporter
 
 		data.each do |aData|
 			aData = _ensureFilteredHash(aData, outputSections) if aData.kind_of?(Hash)
+
 			reportPath = @reportOutPath
+			mainVal = nil
 			if mainKey then
 				mainVal = aData.has_key?(mainKey) ? aData[mainKey] : "library"
+
+				if mainVal.kind_of?(Array) then
+					mainVal = mainVal[0]
+				end
+
 				aData.delete(mainKey)
+
 				baseDir = @reportOutPath.to_s.include?(".xml") ? FileUtil.getDirectoryFromPath(@reportOutPath) : @reportOutPath
 				reportPath = "#{baseDir}/#{mainVal}.xml"
 			end
-			FileUtil.ensureDirectory( FileUtil.getDirectoryFromPath(reportPath) )
-			setupOutStream( reportPath )
-			_subReport(aData, 0)
-			@outStream.close() if @outStream!=STDOUT
+			if mainVal then
+				FileUtil.ensureDirectory( FileUtil.getDirectoryFromPath(reportPath) )
+				setupOutStream( reportPath )
+				_subReport(aData, 0)
+				@outStream.close() if @outStream!=STDOUT
+			end
 		end
 	end
 end
@@ -897,7 +1013,7 @@ class AndroidMakefileParserExecutor < TaskAsync
 
 	def execute
 		parser = @makefilePath.end_with?(".mk") ? AndroidMkParser.new( @makefilePath, @envFlatten, @compilerFilter ) : AndroidBpParser.new( @makefilePath, @envFlatten, @compilerFilter )
-		result = parser.getResult(@version) if parser.isNativeLib()
+		result = parser.getResult(@version)
 		@resultCollector.onResult(@makefilePath, result) if result && !result.empty?
 		_doneTask()
 	end
@@ -907,6 +1023,7 @@ end
 #---- main --------------------------
 options = {
 	:verbose => false,
+	:mode => "nativeLib|apk",
 	:envFlatten => false,
 	:reportFormat => "xml",
 	:outFolder => nil,
@@ -993,9 +1110,9 @@ else
 	end
 end
 
-nativeLibsInBuiltOut = []
+builtOuts = []
 if options[:outFolder] then
-	nativeLibsInBuiltOut = AndroidUtil.getListOfNativeLibsInBuiltOut(options[:outFolder])
+	builtOuts = AndroidUtil.getListOfBuiltOuts(options[:outFolder])
 end
 
 puts makefilePaths if options[:verbose]
@@ -1015,10 +1132,29 @@ _result.each do | makefilePath, theResults |
 	result << theResults
 end
 
-if !nativeLibsInBuiltOut.empty? then
-	result = AndroidUtil.replaceLibPathWithBuiltOuts( result, nativeLibsInBuiltOut, options[:filterOutMatch] )
+if !builtOuts.empty? then
+	result = AndroidUtil.replaceLibPathWithBuiltOuts( result, builtOuts, options[:filterOutMatch] )
 end
 
 reporter = reporter.new( options[:reportOutPath] )
-reporter.report( result, "libName|version|headers|libs|gcc_options", options )
+
+nativeLibs = []
+apks = []
+result.each do |aResult|
+	if aResult.has_key?("libName") && !aResult["libName"].empty? && !aResult["libs"].empty? then
+		nativeLibs << aResult
+	end
+	if aResult.has_key?("apkName") && !aResult["apkName"].empty? then
+		if !aResult.has_key?("dexPreOpt") || aResult["dexPreOpt"].empty? then
+			aResult["dexPreOpt"] = "true" # default is true
+		end
+		apks << aResult
+	end
+end
+
+
+reporter.report( nativeLibs, "libName|version|headers|libs|gcc_options", options )
+reporter.close()
+
+reporter.report( apks, "apkName|certificate|dexPreOpt", options )
 reporter.close()
