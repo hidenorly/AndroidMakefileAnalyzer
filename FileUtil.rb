@@ -150,10 +150,10 @@ class FileUtil
 		return result
 	end
 
-	def self.getFileWriter(path)
+	def self.getFileWriter(path, enableAppend=false)
 		result = nil
 		begin
-			result = File.open(path, "w")
+			result = File.open(path, ( enableAppend && File.exist?(path) ) ? "a" : "w")
 		rescue => ex
 		end
 		return result

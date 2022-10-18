@@ -81,8 +81,14 @@ class AndroidUtil
 		return result
 	end
 
-	def self.getListOfBuiltOuts(builtOutPath)
-		return FileUtil.getRegExpFilteredFiles(builtOutPath, "\.(so|a|apk|jar|apex)$")
+	def self.getListOfBuiltOuts(builtOutPath, isNativeLib = true, isApk = true, isJar = true)
+		searchTarget = []
+		searchTarget << "so|a" if isNativeLib
+		searchTarget << "apk|apex" if isApk
+		searchTarget << "jar" if isJar
+		searchTarget = searchTarget.join("|")
+		searchTarget = searchTarget.slice(0, searchTarget.length-1) if searchTarget.end_with?("|")
+		return searchTarget ? FileUtil.getRegExpFilteredFiles(builtOutPath, "\.(#{searchTarget})$") : []
 	end
 
 	DEF_BUILTS_OUT_EXTS=[
@@ -102,48 +108,6 @@ class AndroidUtil
 			end
 		end
 		return path
-	end
-
-	def self.replaceLibPathWithBuiltOuts( original, builtOuts, enableOnlyFoundBuiltOuts = false )
-		result = []
-		builtOutCache = {}
-
-		builtOuts.each do |aPath|
-			builtOutCache[ getFilenameFromPathWithoutExt( aPath ) ] = aPath if !enableOnlyFoundBuiltOuts || enableOnlyFoundBuiltOuts && File.exist?(aPath) && File.size(aPath).to_i>0
-		end
-
-		original.each do |aResult|
-			found = false
-			targets = []
-			targets = targets | aResult["libs"] if aResult.has_key?("libs")
-			targets = targets | targets = aResult["apkName"] if aResult.has_key?("apkName")
-
-			if !targets.empty? then
-				replacedResults = []
-				targets.to_a.each do |anTarget|
-					key = getFilenameFromPathWithoutExt(anTarget)
-					if builtOutCache.has_key?( key ) then
-						found = true
-						replacedResults << builtOutCache[key]
-					else
-						replacedResults << anTarget if !enableOnlyFoundBuiltOuts
-					end
-				end
-				aResult["libs"] = []
-				aResult["apkName"] = []
-				replacedResults.each do | aReplacedResult|
-					aResult["libs"] << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a")
-					aResult["apkName"] << aReplacedResult if aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
-				end
-			end
-
-			aResult["libName"] = getFilenameFromPathWithoutExt(aResult["libs"].to_a[0]) if !aResult["libs"].to_a.empty?
-			aResult["apkName"] = getFilenameFromPathWithoutExt(aResult["apkName"].to_a[0]) if !aResult["apkName"].to_a.empty?
-
-			result << aResult if !enableOnlyFoundBuiltOuts || found
-		end
-
-		return result
 	end
 
 	DEF_ANDROID_ROOT=[
@@ -211,6 +175,49 @@ class AndroidMakefileParser
 				result["dexPreOpt"] = @dexPreOpt
 			end
 		end
+		return result
+	end
+
+	def self.replaceLibPathWithBuiltOuts( original, builtOuts, enableOnlyFoundBuiltOuts = false )
+		result = []
+		builtOutCache = {}
+
+		builtOuts.each do |aPath|
+			builtOutCache[ AndroidUtil.getFilenameFromPathWithoutExt( aPath ) ] = aPath if !enableOnlyFoundBuiltOuts || enableOnlyFoundBuiltOuts && File.exist?(aPath) && File.size(aPath).to_i>0
+		end
+
+		original.each do |aResult|
+			found = false
+			targets = []
+			targets = targets | aResult["libs"] if aResult.has_key?("libs")
+			targets = targets | targets = aResult["apkName"] if aResult.has_key?("apkName")
+
+			if !targets.empty? then
+				replacedResults = []
+				targets.to_a.each do |anTarget|
+					key = AndroidUtil.getFilenameFromPathWithoutExt(anTarget)
+					if builtOutCache.has_key?( key ) then
+						found = true
+						replacedResults << builtOutCache[key]
+					else
+						replacedResults << anTarget if !enableOnlyFoundBuiltOuts
+					end
+				end
+				aResult["libs"] = []
+				aResult["apkName"] = []
+				replacedResults.each do |aReplacedResult|
+					aReplacedResult = aReplacedResult.to_s
+					aResult["libs"] << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a")
+					aResult["apkName"] << aReplacedResult if aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
+				end
+			end
+
+			aResult["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["libs"].to_a[0]) if !aResult["libs"].to_a.empty?
+			aResult["apkName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["apkName"].to_a[0]) if !aResult["apkName"].to_a.empty?
+
+			result << aResult if !enableOnlyFoundBuiltOuts || found
+		end
+
 		return result
 	end
 
@@ -389,6 +396,7 @@ class AndroidMkParser < AndroidMakefileParser
 	]
 
 	DEF_APK_PACKAGE_NAME_IDENTIFIER = "LOCAL_PACKAGE_NAME"
+	DEF_APK_PREBUILT_NAME_IDENTIFIER = "LOCAL_SRC_FILES"
 	DEF_APK_CERTIFICATE_IDENTIFIER = "LOCAL_CERTIFICATE"
 	DEF_DEX_PREOPT_IDENTIFIER = "LOCAL_DEX_PREOPT"
 
@@ -427,6 +435,9 @@ class AndroidMkParser < AndroidMakefileParser
 						@isApk = true
 					when DEF_APK_CERTIFICATE_IDENTIFIER
 						@certificate << value if value
+						@isApk = true
+					when DEF_APK_PREBUILT_NAME_IDENTIFIER
+						@apkName << value if value && value.include?(".apk")
 						@isApk = true
 					else
 						DEF_CFLAGS_IDENTIFIER.each do | aCFlags |
@@ -513,7 +524,8 @@ class AndroidBpParser < AndroidMakefileParser
 
 	DEF_APK_IDENTIFIER = [
 		"android_app",
-		"android_app_import"
+		"android_app_import",
+		"runtime_resource_overlay"
 	]
 	DEF_APK_NAME_IDENTIFIER = "name"
 	DEF_APK_DEFAULTS_IDENTIFIER = "defaults" # [], makefile base
@@ -633,14 +645,14 @@ end
 
 
 class Reporter
-	def setupOutStream(reportOutPath)
-		outStream = reportOutPath ? FileUtil.getFileWriter(reportOutPath) : nil
+	def setupOutStream(reportOutPath, enableAppend = false)
+		outStream = reportOutPath ? FileUtil.getFileWriter(reportOutPath, enableAppend) : nil
 		outStream = outStream ? outStream : STDOUT
 		@outStream = outStream
 	end
 
-	def initialize(reportOutPath)
-		setupOutStream(reportOutPath)
+	def initialize(reportOutPath, enableAppend = false)
+		setupOutStream(reportOutPath, enableAppend)
 	end
 
 	def close()
@@ -711,8 +723,8 @@ class Reporter
 end
 
 class MarkdownReporter < Reporter
-	def initialize(reportOutPath)
-		super(reportOutPath)
+	def initialize(reportOutPath, enableAppend = false)
+		super(reportOutPath, enableAppend)
 	end
 	def titleOut(title)
 		if @outStream
@@ -767,8 +779,8 @@ class MarkdownReporter < Reporter
 end
 
 class CsvReporter < Reporter
-	def initialize(reportOutPath)
-		super(reportOutPath)
+	def initialize(reportOutPath, enableAppend = false)
+		super(reportOutPath, enableAppend)
 	end
 
 	def titleOut(title)
@@ -810,8 +822,8 @@ class CsvReporter < Reporter
 end
 
 class XmlReporter < Reporter
-	def initialize(reportOutPath)
-		super(reportOutPath)
+	def initialize(reportOutPath, enableAppend = false)
+		super(reportOutPath, enableAppend)
 	end
 
 	def titleOut(title)
@@ -918,9 +930,9 @@ class XmlReporter < Reporter
 end
 
 class XmlReporterPerLib < XmlReporter
-	def initialize(reportOutPath)
+	def initialize(reportOutPath, enableAppend=false)
 		@reportOutPath = reportOutPath
-		@outStream = nil
+		@outStream = nil #not necessary to call super()
 	end
 
 	def report(data, outputSections=nil, options={})
@@ -1040,6 +1052,10 @@ resultCollector = ResultCollectorHash.new()
 opt_parser = OptionParser.new do |opts|
 	opts.banner = "Usage: usage ANDROID_HOME"
 
+	opts.on("-m", "--mode=", "Set analysis modes nativLib|apk|jar (default:#{options[:mode]})") do |mode|
+		options[:mode] = mode.to_s
+	end
+
 	opts.on("-r", "--reportFormat=", "Specify report format markdown|csv|xml|xml-perlib (default:#{options[:reportFormat]})") do |reportFormat|
 		case reportFormat.to_s.downcase
 		when "markdown"
@@ -1112,7 +1128,7 @@ end
 
 builtOuts = []
 if options[:outFolder] then
-	builtOuts = AndroidUtil.getListOfBuiltOuts(options[:outFolder])
+	builtOuts = AndroidUtil.getListOfBuiltOuts(options[:outFolder], options[:mode].include?("nativeLib"), options[:mode].include?("apk"), options[:mode].include?("jar"))
 end
 
 puts makefilePaths if options[:verbose]
@@ -1133,10 +1149,8 @@ _result.each do | makefilePath, theResults |
 end
 
 if !builtOuts.empty? then
-	result = AndroidUtil.replaceLibPathWithBuiltOuts( result, builtOuts, options[:filterOutMatch] )
+	result = AndroidMakefileParser.replaceLibPathWithBuiltOuts( result, builtOuts, options[:filterOutMatch] )
 end
-
-reporter = reporter.new( options[:reportOutPath] )
 
 nativeLibs = []
 apks = []
@@ -1152,9 +1166,15 @@ result.each do |aResult|
 	end
 end
 
+isMultipleReports = !options[:mode].split("|").empty?
+if options[:mode].include?("nativeLib") then
+	_reporter = reporter.new( options[:reportOutPath] )
+	_reporter.report( nativeLibs, "libName|version|headers|libs|gcc_options", options )
+	_reporter.close()
+end
 
-reporter.report( nativeLibs, "libName|version|headers|libs|gcc_options", options )
-reporter.close()
-
-reporter.report( apks, "apkName|certificate|dexPreOpt", options )
-reporter.close()
+if options[:mode].include?("apk") then
+	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
+	_reporter.report( apks, "apkName|certificate|dexPreOpt", options )
+	_reporter.close()
+end
