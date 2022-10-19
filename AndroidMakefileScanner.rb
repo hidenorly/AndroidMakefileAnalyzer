@@ -165,12 +165,13 @@ class AndroidMakefileParser
 			result["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(@builtOuts.to_a[0])
 			result["version"] = defaultVersion.to_s #TODO: get version and use it if it's not specified
 			result["headers"] = @nativeIncludes.uniq
-			result["libs"] = @builtOuts.uniq
+			result["builtOuts"] = @builtOuts.uniq
 			result["gcc_options"] = @cflags.uniq
 		end
 		if @isApk then
 			if !@apkName.empty? then
 				result["apkName"] = @apkName
+				result["builtOuts"] = @builtOuts
 				result["certificate"] = @certificate
 				result["dexPreOpt"] = @dexPreOpt
 			end
@@ -178,7 +179,7 @@ class AndroidMakefileParser
 		return result
 	end
 
-	def self.replaceLibPathWithBuiltOuts( original, builtOuts, enableOnlyFoundBuiltOuts = false )
+	def self.replacePathWithBuiltOuts( original, builtOuts, enableOnlyFoundBuiltOuts = false )
 		result = []
 		builtOutCache = {}
 
@@ -189,7 +190,7 @@ class AndroidMakefileParser
 		original.each do |aResult|
 			found = false
 			targets = []
-			targets = targets | aResult["libs"] if aResult.has_key?("libs")
+			targets = targets | aResult["builtOuts"] if aResult.has_key?("builtOuts")
 			targets = targets | targets = aResult["apkName"] if aResult.has_key?("apkName")
 
 			if !targets.empty? then
@@ -203,16 +204,16 @@ class AndroidMakefileParser
 						replacedResults << anTarget if !enableOnlyFoundBuiltOuts
 					end
 				end
-				aResult["libs"] = []
+				aResult["builtOuts"] = []
 				aResult["apkName"] = []
 				replacedResults.each do |aReplacedResult|
 					aReplacedResult = aReplacedResult.to_s
-					aResult["libs"] << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a")
+					aResult["builtOuts"] << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a") || aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
 					aResult["apkName"] << aReplacedResult if aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
 				end
 			end
 
-			aResult["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["libs"].to_a[0]) if !aResult["libs"].to_a.empty?
+			aResult["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["builtOuts"].to_a[0]) if !aResult["builtOuts"].to_a.empty?
 			aResult["apkName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["apkName"].to_a[0]) if !aResult["apkName"].to_a.empty?
 
 			result << aResult if !enableOnlyFoundBuiltOuts || found
@@ -1149,13 +1150,14 @@ _result.each do | makefilePath, theResults |
 end
 
 if !builtOuts.empty? then
-	result = AndroidMakefileParser.replaceLibPathWithBuiltOuts( result, builtOuts, options[:filterOutMatch] )
+	result = AndroidMakefileParser.replacePathWithBuiltOuts( result, builtOuts, options[:filterOutMatch] )
 end
 
 nativeLibs = []
 apks = []
 result.each do |aResult|
-	if aResult.has_key?("libName") && !aResult["libName"].empty? && !aResult["libs"].empty? then
+	if aResult.has_key?("libName") && !aResult["libName"].empty? && !aResult["builtOuts"].empty? then
+		aResult["libs"] = aResult["builtOuts"]
 		nativeLibs << aResult
 	end
 	if aResult.has_key?("apkName") && !aResult["apkName"].empty? then
@@ -1175,6 +1177,6 @@ end
 
 if options[:mode].include?("apk") then
 	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
-	_reporter.report( apks, "apkName|certificate|dexPreOpt", options )
+	_reporter.report( apks, "apkName|builtOuts|certificate|dexPreOpt", options )
 	_reporter.close()
 end
