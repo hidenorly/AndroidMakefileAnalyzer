@@ -1037,6 +1037,8 @@ end
 options = {
 	:verbose => false,
 	:mode => "nativeLib|apk",
+	:libFields => "libName|version|headers|libs|gcc_options",
+	:apkFields => "apkName|apkPath|certificate|dexPreOpt",
 	:envFlatten => false,
 	:reportFormat => "xml",
 	:outFolder => nil,
@@ -1068,6 +1070,14 @@ opt_parser = OptionParser.new do |opts|
 		when "xml-perlib"
 			reporter = XmlReporterPerLib
 		end
+	end
+
+	opts.on("", "--libFields=", "Specify lib report fields (default:#{options[:libFields]})") do |libFields|
+		options[:libFields] = libFields
+	end
+
+	opts.on("", "--apkFields=", "Specify apk custom fields (default:#{options[:apkFields]})") do |apkFields|
+		options[:apkFields] = apkFields
 	end
 
 	opts.on("-e", "--envFlatten", "Enable env value flatten") do
@@ -1146,6 +1156,7 @@ taskMan.finalize()
 _result = resultCollector.getResult()
 
 _result.each do | makefilePath, theResults |
+	theResults["makefile"] = makefilePath
 	result << theResults
 end
 
@@ -1156,11 +1167,23 @@ end
 nativeLibs = []
 apks = []
 result.each do |aResult|
-	if aResult.has_key?("libName") && !aResult["libName"].empty? && !aResult["builtOuts"].empty? then
-		aResult["libs"] = aResult["builtOuts"]
+	# ensure "libs" for native lib and ensure "apkPath" for apk
+	aResult["libs"] = []
+	aResult["builtOuts"].each do |aBuiltOut|
+		aBuiltOut = aBuiltOut.to_s
+		aResult["libs"] << aBuiltOut if aBuiltOut.end_with?(".so")
+	end
+	aResult["libs"].uniq!
+	aResult["apkPath"] = (aResult["builtOuts"] - aResult["libs"]).uniq # then apkPath is only apks as of now.
+
+	# for nativeLibs
+	if aResult.has_key?("libName") && !aResult["libName"].empty? && !aResult["libs"].empty? then
 		nativeLibs << aResult
 	end
-	if aResult.has_key?("apkName") && !aResult["apkName"].empty? then
+
+	# for apks
+	if aResult.has_key?("apkName") && !aResult["apkName"].empty? && !aResult["apkPath"].empty? then
+		# ensure dexPreOpt
 		if !aResult.has_key?("dexPreOpt") || aResult["dexPreOpt"].empty? then
 			aResult["dexPreOpt"] = "true" # default is true
 		end
@@ -1171,12 +1194,12 @@ end
 isMultipleReports = !options[:mode].split("|").empty?
 if options[:mode].include?("nativeLib") then
 	_reporter = reporter.new( options[:reportOutPath] )
-	_reporter.report( nativeLibs, "libName|version|headers|libs|gcc_options", options )
+	_reporter.report( nativeLibs, options[:libFields], options )
 	_reporter.close()
 end
 
 if options[:mode].include?("apk") then
 	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
-	_reporter.report( apks, "apkName|builtOuts|certificate|dexPreOpt", options )
+	_reporter.report( apks, options[:apkFields], options )
 	_reporter.close()
 end
