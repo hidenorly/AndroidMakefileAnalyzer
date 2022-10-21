@@ -149,6 +149,8 @@ class AndroidMakefileParser
 		@apkName = []
 		@certificate = []
 		@dexPreOpt = []
+		@isJar = false
+		@jarName = []
 	end
 
 	def isNativeLib
@@ -159,14 +161,27 @@ class AndroidMakefileParser
 		return @isApk
 	end
 
+	def isJar
+		return @isJar
+	end
+
 	def getResult(defaultVersion)
 		result = {}
+
+		@nativeIncludes.uniq!
+		@builtOuts.uniq!
+		@cflags.uniq!
+		@apkName.uniq!
+		@certificate.uniq!
+		@dexPreOpt.uniq!
+		@jarName.uniq!
+
 		if @isNativeLib then
 			result["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(@builtOuts.to_a[0])
 			result["version"] = defaultVersion.to_s #TODO: get version and use it if it's not specified
-			result["headers"] = @nativeIncludes.uniq
-			result["builtOuts"] = @builtOuts.uniq
-			result["gcc_options"] = @cflags.uniq
+			result["headers"] = @nativeIncludes
+			result["builtOuts"] = @builtOuts
+			result["gcc_options"] = @cflags
 		end
 		if @isApk then
 			if !@apkName.empty? then
@@ -174,6 +189,13 @@ class AndroidMakefileParser
 				result["builtOuts"] = @builtOuts
 				result["certificate"] = @certificate
 				result["dexPreOpt"] = @dexPreOpt
+			end
+		end
+		if @isJar then
+			if !@apkName.empty? then
+				result["jarName"] = @apkName
+				result["jarPath"] = @builtOuts
+				result["builtOuts"] = @builtOuts
 			end
 		end
 		return result
@@ -206,15 +228,18 @@ class AndroidMakefileParser
 				end
 				aResult["builtOuts"] = []
 				aResult["apkName"] = []
+				aResult["jarName"] = []
 				replacedResults.each do |aReplacedResult|
 					aReplacedResult = aReplacedResult.to_s
-					aResult["builtOuts"] << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a") || aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
+					aResult["builtOuts"] << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a") || aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex") || aReplacedResult.end_with?(".jar")
 					aResult["apkName"] << aReplacedResult if aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
+					aResult["jarName"] << aReplacedResult if aReplacedResult.end_with?(".jar")
 				end
 			end
 
 			aResult["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["builtOuts"].to_a[0]) if !aResult["builtOuts"].to_a.empty?
 			aResult["apkName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["apkName"].to_a[0]) if !aResult["apkName"].to_a.empty?
+			aResult["jarName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["jarName"].to_a[0]) if !aResult["jarName"].to_a.empty?
 
 			result << aResult if !enableOnlyFoundBuiltOuts || found
 		end
@@ -452,6 +477,11 @@ class AndroidMkParser < AndroidMakefileParser
 								break
 							end
 						end
+						DEF_JAR_IDENTIFIER.each do | anIdentifier |
+							if anIdentifier == key then
+								@jarName << @builtOuts.last if @builtOuts.last
+							end
+						end
 					end
 				end
 
@@ -472,29 +502,33 @@ class AndroidMkParser < AndroidMakefileParser
 	DEF_APK_IDENTIFIER=[
 		Regexp.compile("\(BUILD_PACKAGE\)"),
 		#Regexp.compile("\(BUILD_CTS_PACKAGE\)"),
-		#Regexp.compile("\(BUILD_STATIC_JAVA_LIBRARY\)"),
-		#Regexp.compile("\(BUILD_JAVA_LIBRARY\)"),
 		Regexp.compile("\(BUILD_PREBUILT\)"),
 		Regexp.compile("\(BUILD_RRO_PACKAGE\)"),
 		Regexp.compile("\(BUILD_PHONY_PACKAGE\)")
 	]
+	DEF_JAR_IDENTIFIER=[
+		Regexp.compile("\(BUILD_STATIC_JAVA_LIBRARY\)"),
+		Regexp.compile("\(BUILD_JAVA_LIBRARY\)")
+	]
+
 
 	def initialize(makefilePath, envFlatten, compilerFilter)
 		super(makefilePath, envFlatten, compilerFilter)
 
 		@env["call my-dir"] = FileUtil.getDirectoryFromPath(@makefilePath)
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
-		targetIdentifiers = DEF_NATIVE_LIB_IDENTIFIER | DEF_APK_IDENTIFIER
+		targetIdentifiers = DEF_NATIVE_LIB_IDENTIFIER | DEF_APK_IDENTIFIER | DEF_JAR_IDENTIFIER
 		targetIdentifiers.each do | aCondition |
 			result = makefileBody.grep(aCondition)
 			if !result.empty? then
 				# found native lib
 				@isNativeLib = true if DEF_NATIVE_LIB_IDENTIFIER.include?(aCondition)
 				@isApk = true if DEF_APK_IDENTIFIER.include?(aCondition)
+				@isJar = true if DEF_JAR_IDENTIFIER.include?(aCondition)
 				#break
 			end
 		end
-		parseMakefile(makefileBody) if @isNativeLib || @isApk
+		parseMakefile(makefileBody) if @isNativeLib || @isApk || @isJar
 	end
 
 	def dump
@@ -543,8 +577,10 @@ class AndroidBpParser < AndroidMakefileParser
 	DEF_JAR_IDENTIFIER = [
 		"java_library_static",
 		"java_library",
-		"java_sdk_library"
+		"java_sdk_library",
+		"android_library"
 	]
+	DEF_JAR_NAME_IDENTIFIER = "name"
 
 	def ensureJson(body)
 		return "{ #{body} }".gsub(/(\w+)\s*:/, '"\1":').gsub(/,(?= *\])/, '').gsub(/,(?= *\})/, '')
@@ -565,7 +601,7 @@ class AndroidBpParser < AndroidMakefileParser
 	def parseMakefile(makefileBody)
 		body = removeRemark(makefileBody).join(" ")
 
-		targetIdentifier = DEF_APK_IDENTIFIER | DEF_NATIVE_LIB_IDENTIFIER
+		targetIdentifier = DEF_APK_IDENTIFIER | DEF_NATIVE_LIB_IDENTIFIER | DEF_JAR_IDENTIFIER
 
 		targetIdentifier.each do |aCondition|
 			pos = body.index(aCondition)
@@ -621,6 +657,14 @@ class AndroidBpParser < AndroidMakefileParser
 						elsif theBp.has_key?(DEF_APK_CERTIFICATE_IDENTIFIER) then
 							val = theBp[DEF_APK_CERTIFICATE_IDENTIFIER].to_s
 							@certificate << val if !val.empty?
+						end
+					end
+
+					if DEF_JAR_IDENTIFIER.include?(aCondition) then
+						@isJar = true
+						if theBp.has_key?(DEF_JAR_NAME_IDENTIFIER) then
+							val = theBp[DEF_JAR_NAME_IDENTIFIER].to_s
+							@jarName << val if !val.empty?
 						end
 					end
 				end
@@ -1036,9 +1080,10 @@ end
 #---- main --------------------------
 options = {
 	:verbose => false,
-	:mode => "nativeLib|apk",
+	:mode => "nativeLib|apk|jar",
 	:libFields => "libName|version|headers|libs|gcc_options",
 	:apkFields => "apkName|apkPath|certificate|dexPreOpt",
+	:jarFields => "jarName|jarPath|",
 	:envFlatten => false,
 	:reportFormat => "xml",
 	:outFolder => nil,
@@ -1078,6 +1123,10 @@ opt_parser = OptionParser.new do |opts|
 
 	opts.on("", "--apkFields=", "Specify apk custom fields (default:#{options[:apkFields]})") do |apkFields|
 		options[:apkFields] = apkFields
+	end
+
+	opts.on("", "--jarFields=", "Specify jar custom fields (default:#{options[:jarFields]})") do |jarFields|
+		options[:jarFields] = jarFields
 	end
 
 	opts.on("-e", "--envFlatten", "Enable env value flatten") do
@@ -1166,15 +1215,19 @@ end
 
 nativeLibs = []
 apks = []
+jars = []
 result.each do |aResult|
 	# ensure "libs" for native lib and ensure "apkPath" for apk
 	aResult["libs"] = []
+	aResult["jarPath"] = []
 	aResult["builtOuts"].each do |aBuiltOut|
 		aBuiltOut = aBuiltOut.to_s
-		aResult["libs"] << aBuiltOut if aBuiltOut.end_with?(".so")
+		aResult["libs"] << aBuiltOut if aBuiltOut.end_with?(".so") || FileUtil.getFilenameFromPath(aBuiltOut).start_with?("lib")
+		aResult["jarPath"] << aBuiltOut if aBuiltOut.end_with?(".jar")
 	end
 	aResult["libs"].uniq!
-	aResult["apkPath"] = (aResult["builtOuts"] - aResult["libs"]).uniq # then apkPath is only apks as of now.
+	aResult["jarPath"].uniq!
+	aResult["apkPath"] = (aResult["builtOuts"] - aResult["libs"] - aResult["jarPath"]).uniq # then apkPath is only apks as of now.
 
 	# for nativeLibs
 	if aResult.has_key?("libName") && !aResult["libName"].empty? && !aResult["libs"].empty? then
@@ -1189,6 +1242,11 @@ result.each do |aResult|
 		end
 		apks << aResult
 	end
+
+	# for jars
+	if aResult.has_key?("jarName") && !aResult["jarName"].empty? then
+		jars << aResult
+	end
 end
 
 isMultipleReports = !options[:mode].split("|").empty?
@@ -1201,5 +1259,11 @@ end
 if options[:mode].include?("apk") then
 	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
 	_reporter.report( apks, options[:apkFields], options )
+	_reporter.close()
+end
+
+if options[:mode].include?("jar") then
+	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
+	_reporter.report( jars, options[:jarFields], options )
 	_reporter.close()
 end
