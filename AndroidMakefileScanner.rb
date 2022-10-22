@@ -192,8 +192,8 @@ class AndroidMakefileParser
 			end
 		end
 		if @isJar then
-			if !@apkName.empty? then
-				result["jarName"] = @apkName
+			if !@jarName.empty? then
+				result["jarName"] = @jarName
 				result["jarPath"] = @builtOuts
 				result["builtOuts"] = @builtOuts
 			end
@@ -214,6 +214,7 @@ class AndroidMakefileParser
 			targets = []
 			targets = targets | aResult["builtOuts"] if aResult.has_key?("builtOuts")
 			targets = targets | targets = aResult["apkName"] if aResult.has_key?("apkName")
+			targets = targets | targets = aResult["jarName"] if aResult.has_key?("jarName")
 
 			if !targets.empty? then
 				replacedResults = []
@@ -226,15 +227,19 @@ class AndroidMakefileParser
 						replacedResults << anTarget if !enableOnlyFoundBuiltOuts
 					end
 				end
-				aResult["builtOuts"] = []
-				aResult["apkName"] = []
-				aResult["jarName"] = []
+				builtOuts = []
+				apkName = []
+				jarName = []
 				replacedResults.each do |aReplacedResult|
 					aReplacedResult = aReplacedResult.to_s
-					aResult["builtOuts"] << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a") || aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex") || aReplacedResult.end_with?(".jar")
-					aResult["apkName"] << aReplacedResult if aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
-					aResult["jarName"] << aReplacedResult if aReplacedResult.end_with?(".jar")
+					builtOuts << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a") || aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex") || aReplacedResult.end_with?(".jar")
+					apkName << aReplacedResult if aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
+					jarName << aReplacedResult if aReplacedResult.end_with?(".jar")
 				end
+
+				aResult["builtOuts"] = builtOuts if !builtOuts.empty? || enableOnlyFoundBuiltOuts
+				aResult["apkName"] = apkName if !apkName.empty? || enableOnlyFoundBuiltOuts
+				aResult["jarName"] = jarName if !jarName.empty? || enableOnlyFoundBuiltOuts
 			end
 
 			aResult["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["builtOuts"].to_a[0]) if !aResult["builtOuts"].to_a.empty?
@@ -478,7 +483,7 @@ class AndroidMkParser < AndroidMakefileParser
 							end
 						end
 						DEF_JAR_IDENTIFIER.each do | anIdentifier |
-							if anIdentifier == key then
+							if theLine.match(anIdentifier) then
 								@jarName << @builtOuts.last if @builtOuts.last
 							end
 						end
@@ -504,11 +509,13 @@ class AndroidMkParser < AndroidMakefileParser
 		#Regexp.compile("\(BUILD_CTS_PACKAGE\)"),
 		Regexp.compile("\(BUILD_PREBUILT\)"),
 		Regexp.compile("\(BUILD_RRO_PACKAGE\)"),
-		Regexp.compile("\(BUILD_PHONY_PACKAGE\)")
+		Regexp.compile("\(BUILD_PHONY_PACKAGE\)"),
+		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*APPS")
 	]
 	DEF_JAR_IDENTIFIER=[
 		Regexp.compile("\(BUILD_STATIC_JAVA_LIBRARY\)"),
-		Regexp.compile("\(BUILD_JAVA_LIBRARY\)")
+		Regexp.compile("\(BUILD_JAVA_LIBRARY\)"),
+		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*JAVA_LIBRARIES")
 	]
 
 
@@ -1222,8 +1229,9 @@ result.each do |aResult|
 	aResult["jarPath"] = []
 	aResult["builtOuts"].each do |aBuiltOut|
 		aBuiltOut = aBuiltOut.to_s
-		aResult["libs"] << aBuiltOut if aBuiltOut.end_with?(".so") || FileUtil.getFilenameFromPath(aBuiltOut).start_with?("lib")
-		aResult["jarPath"] << aBuiltOut if aBuiltOut.end_with?(".jar")
+		filename = FileUtil.getFilenameFromPath(aBuiltOut)
+		aResult["libs"] << aBuiltOut if aBuiltOut.end_with?(".so") || filename.start_with?("lib")
+		aResult["jarPath"] << aBuiltOut if aBuiltOut.end_with?(".jar") || !filename.include?(".")
 	end
 	aResult["libs"].uniq!
 	aResult["jarPath"].uniq!
