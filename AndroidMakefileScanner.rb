@@ -196,6 +196,7 @@ class AndroidMakefileParser
 				result["jarName"] = @jarName
 				result["jarPath"] = @builtOuts
 				result["builtOuts"] = @builtOuts
+				result["dexPreOpt"] = @dexPreOpt
 			end
 		end
 		return result
@@ -672,6 +673,12 @@ class AndroidBpParser < AndroidMakefileParser
 						if theBp.has_key?(DEF_JAR_NAME_IDENTIFIER) then
 							val = theBp[DEF_JAR_NAME_IDENTIFIER].to_s
 							@jarName << val if !val.empty?
+						elsif theBp.has_key?(DEF_DEX_PREOPT_IDENTIFIER) then
+							val = theBp[DEF_DEX_PREOPT_IDENTIFIER]
+							if val.has_key?(DEF_DEX_PREOPT_ENABLED_IDENTIFIER) then
+								enabled = val[DEF_DEX_PREOPT_ENABLED_IDENTIFIER].to_s
+								@dexPreOpt << enabled if !enabled.empty?
+							end
 						end
 					end
 				end
