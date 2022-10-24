@@ -62,7 +62,7 @@ class FileUtil
 		ensureDirectory(path)
 	end
 
-	def self.iteratePath(path, matchKey, pathes, recursive, dirOnly)
+	def self.iteratePath(path, matchKey, pathes, recursive, dirOnly, maxDepth=-1, currentDepth=0)
 		begin
 			Dir.foreach( path ) do |aPath|
 				next if aPath == '.' or aPath == '..'
@@ -75,7 +75,7 @@ class FileUtil
 						end
 					end
 					if recursive then
-						iteratePath( fullPath, matchKey, pathes, recursive, dirOnly )
+						iteratePath( fullPath, matchKey, pathes, recursive, dirOnly, maxDepth, currentDepth+1 ) if maxDepth<=0 || currentDepth<maxDepth
 					end
 				else
 					if !dirOnly then
@@ -149,6 +149,14 @@ class FileUtil
 
 		return result
 	end
+
+
+	def self.getRegExpFilteredFilesMT2(path, fileFilter)
+		rootDirs=[]
+		iteratePath(path, fileFilter, rootDirs, false, true, 1)
+		return getRegExpFilteredFilesMT( rootDirs, fileFilter )
+	end
+
 
 	def self.getFileWriter(path, enableAppend=false)
 		result = nil

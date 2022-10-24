@@ -88,7 +88,7 @@ class AndroidUtil
 		searchTarget << "jar" if isJar
 		searchTarget = searchTarget.join("|")
 		searchTarget = searchTarget.slice(0, searchTarget.length-1) if searchTarget.end_with?("|")
-		return searchTarget ? FileUtil.getRegExpFilteredFiles(builtOutPath, "\.(#{searchTarget})$") : []
+		return searchTarget ? FileUtil.getRegExpFilteredFilesMT2(builtOutPath, "\.(#{searchTarget})$") : []
 	end
 
 	DEF_BUILTS_OUT_EXTS=[
@@ -162,6 +162,7 @@ class AndroidMakefileParser
 	end
 
 	def isJar
+		
 		return @isJar
 	end
 
