@@ -139,17 +139,19 @@ class AndroidMakefileParser
 		@makefileDirectory = FileUtil.getDirectoryFromPath(makefilePath)
 		@androidRootPath = AndroidUtil.getAndroidRootPath(makefilePath)
 		@envFlatten = envFlatten
+
 		@isNativeLib = false
 		@isApk = false
-		@env = {}
+		@isJar = false
+
 		@nativeIncludes = []
 		@builtOuts = []
 		@cflags = []
+
 		@compilerFilter = compilerFilter
 		@apkName = []
 		@certificate = []
 		@dexPreOpt = []
-		@isJar = false
 		@jarName = []
 	end
 
@@ -166,7 +168,8 @@ class AndroidMakefileParser
 		return @isJar
 	end
 
-	def getResult(defaultVersion)
+	def getResults(defaultVersion)
+		results = []
 		result = {}
 
 		@nativeIncludes.uniq!
@@ -200,7 +203,8 @@ class AndroidMakefileParser
 				result["dexPreOpt"] = @dexPreOpt
 			end
 		end
-		return result
+		results << result
+		return results
 	end
 
 	def self.replacePathWithBuiltOuts( original, builtOuts, enableOnlyFoundBuiltOuts = false )
@@ -524,6 +528,7 @@ class AndroidMkParser < AndroidMakefileParser
 	def initialize(makefilePath, envFlatten, compilerFilter)
 		super(makefilePath, envFlatten, compilerFilter)
 
+		@env = {}
 		@env["call my-dir"] = FileUtil.getDirectoryFromPath(@makefilePath)
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
 		targetIdentifiers = DEF_NATIVE_LIB_IDENTIFIER | DEF_APK_IDENTIFIER | DEF_JAR_IDENTIFIER
@@ -1085,8 +1090,8 @@ class AndroidMakefileParserExecutor < TaskAsync
 
 	def execute
 		parser = @makefilePath.end_with?(".mk") ? AndroidMkParser.new( @makefilePath, @envFlatten, @compilerFilter ) : AndroidBpParser.new( @makefilePath, @envFlatten, @compilerFilter )
-		result = parser.getResult(@version)
-		@resultCollector.onResult(@makefilePath, result) if result && !result.empty?
+		results = parser.getResults(@version)
+		@resultCollector.onResult(@makefilePath, results) if results && !results.empty?
 		_doneTask()
 	end
 end
@@ -1220,8 +1225,10 @@ taskMan.finalize()
 _result = resultCollector.getResult()
 
 _result.each do | makefilePath, theResults |
-	theResults["makefile"] = makefilePath
-	result << theResults
+	theResults.each do |aResult|
+		aResult["makefile"] = makefilePath
+	end
+	result = result | theResults # note that theResults is also array
 end
 
 if !builtOuts.empty? then
@@ -1235,6 +1242,7 @@ result.each do |aResult|
 	# ensure "libs" for native lib and ensure "apkPath" for apk
 	aResult["libs"] = []
 	aResult["jarPath"] = []
+	aResult["builtOuts"] = aResult["builtOuts"].to_a
 	aResult["builtOuts"].each do |aBuiltOut|
 		aBuiltOut = aBuiltOut.to_s
 		filename = FileUtil.getFilenameFromPath(aBuiltOut)
