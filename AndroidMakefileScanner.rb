@@ -134,6 +134,32 @@ class AndroidUtil
 end
 
 class AndroidMakefileParser
+	class ParseResult
+		attr_accessor :builtOuts
+
+		attr_accessor :libName
+		attr_accessor :nativeIncludes
+		attr_accessor :cflags
+
+		attr_accessor :apkName
+		attr_accessor :jarName
+		attr_accessor :certificate
+		attr_accessor :dexPreOpt
+
+		def initialize
+			@builtOuts = []
+
+			@libName = ""
+			@nativeIncludes = []
+			@cflags = []
+
+			@apkName = ""
+			@jarName = ""
+			@certificate = ""
+			@dexPreOpt = "true"
+		end
+	end
+
 	def initialize(makefilePath, envFlatten, compilerFilter)
 		@makefilePath = makefilePath
 		@makefileDirectory = FileUtil.getDirectoryFromPath(makefilePath)
@@ -144,15 +170,10 @@ class AndroidMakefileParser
 		@isApk = false
 		@isJar = false
 
-		@nativeIncludes = []
-		@builtOuts = []
-		@cflags = []
+		@currentResult = ParseResult.new()
+		@results = [@currentResult]
 
 		@compilerFilter = compilerFilter
-		@apkName = []
-		@certificate = []
-		@dexPreOpt = []
-		@jarName = []
 	end
 
 	def isNativeLib
@@ -163,47 +184,44 @@ class AndroidMakefileParser
 		return @isApk
 	end
 
-	def isJar
-		
+	def isJar		
 		return @isJar
 	end
 
 	def getResults(defaultVersion)
 		results = []
-		result = {}
 
-		@nativeIncludes.uniq!
-		@builtOuts.uniq!
-		@cflags.uniq!
-		@apkName.uniq!
-		@certificate.uniq!
-		@dexPreOpt.uniq!
-		@jarName.uniq!
+		@results.each do |aResult|
+			result = {}
 
-		if @isNativeLib then
-			result["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(@builtOuts.to_a[0])
-			result["version"] = defaultVersion.to_s #TODO: get version and use it if it's not specified
-			result["headers"] = @nativeIncludes
-			result["builtOuts"] = @builtOuts
-			result["gcc_options"] = @cflags
-		end
-		if @isApk then
-			if !@apkName.empty? then
-				result["apkName"] = @apkName
-				result["builtOuts"] = @builtOuts
-				result["certificate"] = @certificate
-				result["dexPreOpt"] = @dexPreOpt
+			aResult.nativeIncludes.uniq!
+			aResult.builtOuts.uniq!
+			aResult.cflags.uniq!
+	
+			if @isNativeLib && (!aResult.nativeIncludes.empty? || !aResult.cflags.empty?) then
+				result["libName"] = aResult.libName #? aResult.libName : AndroidUtil.getFilenameFromPathWithoutExt(aResult.builtOuts.to_a[0])
+				result["version"] = defaultVersion.to_s #TODO: get version and use it if it's not specified
+				result["headers"] = aResult.nativeIncludes
+				result["builtOuts"] = aResult.builtOuts
+				result["gcc_options"] = aResult.cflags
 			end
-		end
-		if @isJar then
-			if !@jarName.empty? then
-				result["jarName"] = @jarName
-				result["jarPath"] = @builtOuts
-				result["builtOuts"] = @builtOuts
-				result["dexPreOpt"] = @dexPreOpt
+			if @isApk && aResult.apkName then
+				result["apkName"] = aResult.apkName
+				result["builtOuts"] = aResult.builtOuts
+				result["certificate"] = aResult.certificate
+				result["dexPreOpt"] = aResult.dexPreOpt
 			end
+			if @isJar && aResult.jarName then
+				result["jarName"] = aResult.jarName
+				result["jarPath"] = aResult.builtOuts
+				result["builtOuts"] = aResult.builtOuts
+				result["certificate"] = aResult.certificate
+				result["dexPreOpt"] = aResult.dexPreOpt
+			end
+
+			results << result if !result.empty?
 		end
-		results << result
+
 		return results
 	end
 
@@ -219,8 +237,9 @@ class AndroidMakefileParser
 			found = false
 			targets = []
 			targets = targets | aResult["builtOuts"] if aResult.has_key?("builtOuts")
-			targets = targets | targets = aResult["apkName"] if aResult.has_key?("apkName")
-			targets = targets | targets = aResult["jarName"] if aResult.has_key?("jarName")
+			targets << aResult["libName"] if aResult.has_key?("libName")
+			targets << aResult["apkName"] if aResult.has_key?("apkName")
+			targets << aResult["jarName"] if aResult.has_key?("jarName")
 
 			if !targets.empty? then
 				replacedResults = []
@@ -234,23 +253,23 @@ class AndroidMakefileParser
 					end
 				end
 				builtOuts = []
-				apkName = []
-				jarName = []
+				apkName = ""
+				jarName = ""
 				replacedResults.each do |aReplacedResult|
 					aReplacedResult = aReplacedResult.to_s
 					builtOuts << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a") || aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex") || aReplacedResult.end_with?(".jar")
-					apkName << aReplacedResult if aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
-					jarName << aReplacedResult if aReplacedResult.end_with?(".jar")
+					apkName = aReplacedResult if aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
+					jarName = aReplacedResult if aReplacedResult.end_with?(".jar")
 				end
 
 				aResult["builtOuts"] = builtOuts if !builtOuts.empty? || enableOnlyFoundBuiltOuts
-				aResult["apkName"] = apkName if !apkName.empty? || enableOnlyFoundBuiltOuts
-				aResult["jarName"] = jarName if !jarName.empty? || enableOnlyFoundBuiltOuts
+				aResult["apkName"] = apkName if apkName || enableOnlyFoundBuiltOuts
+				aResult["jarName"] = jarName if jarName || enableOnlyFoundBuiltOuts
 			end
 
 			aResult["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["builtOuts"].to_a[0]) if !aResult["builtOuts"].to_a.empty?
-			aResult["apkName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["apkName"].to_a[0]) if !aResult["apkName"].to_a.empty?
-			aResult["jarName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["jarName"].to_a[0]) if !aResult["jarName"].to_a.empty?
+			aResult["apkName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["apkName"]) if aResult["apkName"]
+			aResult["jarName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["jarName"]) if aResult["jarName"]
 
 			result << aResult if !enableOnlyFoundBuiltOuts || found
 		end
@@ -295,34 +314,38 @@ class AndroidMakefileParser
 	end
 
 	def ensureNativeIncludes
-		if @nativeIncludes.empty? then
-			incPaths = FileUtil.getRegExpFilteredFiles(@makefileDirectory, DEF_NATIVE_HEADER_EXTENSION)
-			incPaths = FileUtil.getRegExpFilteredFiles(@makefileDirectory, DEF_NATIVE_SOURCE_EXTENSION) if incPaths.empty?
-			incPaths.each do |anInc|
-				if _isNativeHeader(anInc) then
-					theDir = FileUtil.getDirectoryFromPath(anInc)
-					theDir = theDir.slice(0, theDir.length-1) if theDir.end_with?(".")
-					theDir = theDir.slice(0, theDir.length-1) if theDir.end_with?("/")
-					@nativeIncludes << theDir if !@nativeIncludes.include?(theDir)
+		@results.each do |aResult|
+			if aResult.nativeIncludes.empty? then
+				incPaths = FileUtil.getRegExpFilteredFiles(@makefileDirectory, DEF_NATIVE_HEADER_EXTENSION)
+				incPaths = FileUtil.getRegExpFilteredFiles(@makefileDirectory, DEF_NATIVE_SOURCE_EXTENSION) if incPaths.empty?
+				incPaths.each do |anInc|
+					if _isNativeHeader(anInc) then
+						theDir = FileUtil.getDirectoryFromPath(anInc)
+						theDir = theDir.slice(0, theDir.length-1) if theDir.end_with?(".")
+						theDir = theDir.slice(0, theDir.length-1) if theDir.end_with?("/")
+						aResult.nativeIncludes << theDir if !aResult.nativeIncludes.include?(theDir)
+					end
 				end
 			end
+			result = []
+			aResult.nativeIncludes.each do |anInc|
+				anInc = anInc.gsub("//", "/")
+				anInc = anInc.slice(0, anInc.length-1) if anInc.end_with?(".")
+				anInc = anInc.slice(0, anInc.length-1) if anInc.end_with?("/")
+				anInc.strip!
+				result << anInc if !anInc.empty?
+			end
+			aResult.nativeIncludes = result
+			aResult.nativeIncludes.uniq!
 		end
-		result = []
-		@nativeIncludes.each do |anInc|
-			anInc = anInc.gsub("//", "/")
-			anInc = anInc.slice(0, anInc.length-1) if anInc.end_with?(".")
-			anInc = anInc.slice(0, anInc.length-1) if anInc.end_with?("/")
-			anInc.strip!
-			result << anInc if !anInc.empty?
-		end
-		@nativeIncludes = result
-		@nativeIncludes.uniq!
 	end
 
 	def ensureCompilerOption
-		@cflags.uniq!
-		@cflags = @compilerFilter.filterOption( @cflags )
-		@cflags.uniq!
+		@results.each do |aResult|
+			aResult.cflags.uniq!
+			aResult.cflags = @compilerFilter.filterOption( aResult.cflags )
+			aResult.cflags.uniq!
+		end
 	end
 end
 
@@ -437,10 +460,40 @@ class AndroidMkParser < AndroidMakefileParser
 	DEF_APK_CERTIFICATE_IDENTIFIER = "LOCAL_CERTIFICATE"
 	DEF_DEX_PREOPT_IDENTIFIER = "LOCAL_DEX_PREOPT"
 
+	DEF_NATIVE_LIB_IDENTIFIER=[
+		Regexp.compile("\(BUILD_(STATIC|SHARED)_LIBRARY\)"),
+#		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*(STATIC|SHARED)_LIBRARIES")
+	]
+	DEF_APK_IDENTIFIER=[
+		Regexp.compile("\(BUILD_PACKAGE\)"),
+		#Regexp.compile("\(BUILD_CTS_PACKAGE\)"),
+		Regexp.compile("\(BUILD_PREBUILT\)"),
+		Regexp.compile("\(BUILD_RRO_PACKAGE\)"),
+		Regexp.compile("\(BUILD_PHONY_PACKAGE\)"),
+#		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*APPS")
+	]
+	DEF_JAR_IDENTIFIER=[
+		Regexp.compile("\(BUILD_STATIC_JAVA_LIBRARY\)"),
+		Regexp.compile("\(BUILD_JAVA_LIBRARY\)"),
+#		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*JAVA_LIBRARIES")
+	]
+
+
 	def parseMakefile(makefileBody)
 		theLine = ""
+		targetIdentifiers = DEF_NATIVE_LIB_IDENTIFIER | DEF_APK_IDENTIFIER | DEF_JAR_IDENTIFIER
 		makefileBody.each do |aLine|
 			aLine.strip!
+			targetIdentifiers.each do |aCondition|
+				if aLine.match(aCondition) then
+					theName = AndroidUtil.getFilenameFromPathWithoutExt(@currentResult.builtOuts.to_a[0])
+					@currentResult.libName = theName if DEF_NATIVE_LIB_IDENTIFIER.include?(aCondition)
+					@currentResult.apkName = theName if DEF_APK_IDENTIFIER.include?(aCondition)
+					@currentResult.jarName = theName if DEF_JAR_IDENTIFIER.include?(aCondition)
+					@currentResult = ParseResult.new()
+					@results << @currentResult
+				end
+			end
 			theLine = "#{theLine} #{aLine}"
 			if !aLine.end_with?("\\") then
 				key, value = getKeyValueFromLine( theLine )
@@ -457,24 +510,24 @@ class AndroidMkParser < AndroidMakefileParser
 							if aVal then
 								aVal = _include_path_for(aVal.to_s)
 								theLibIncludePath = getRobustPath(@makefileDirectory, aVal)
-								@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+								@currentResult.nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
 								theLibIncludePath = getRobustPath(@androidRootPath, aVal)
-								@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+								@currentResult.nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
 							end
 						end
 					when DEF_OUTPUT_IDENTIFIER
-						@builtOuts << value if value
+						@currentResult.builtOuts << value if value
 					when DEF_DEX_PREOPT_IDENTIFIER
-						@dexPreOpt << value if value
+						@currentResult.dexPreOpt = value if value
 						@isApk = true
 					when DEF_APK_PACKAGE_NAME_IDENTIFIER
-						@apkName << value if value
+						@currentResult.apkName = value if value
 						@isApk = true
 					when DEF_APK_CERTIFICATE_IDENTIFIER
-						@certificate << value if value
+						@currentResult.certificate = value if value
 						@isApk = true
 					when DEF_APK_PREBUILT_NAME_IDENTIFIER
-						@apkName << value if value && value.include?(".apk")
+						@currentResult.apkName = value if value && value.include?(".apk")
 						@isApk = true
 					else
 						DEF_CFLAGS_IDENTIFIER.each do | aCFlags |
@@ -482,7 +535,7 @@ class AndroidMkParser < AndroidMakefileParser
 								val = value.to_s.split("\\").map(&:strip!)
 								val.each do |aVal|
 									if aVal then
-										@cflags << aVal
+										@currentResult.cflags << aVal
 									end
 								end
 								break
@@ -490,7 +543,7 @@ class AndroidMkParser < AndroidMakefileParser
 						end
 						DEF_JAR_IDENTIFIER.each do | anIdentifier |
 							if theLine.match(anIdentifier) then
-								@jarName << @builtOuts.last if @builtOuts.last
+								@currentResult.jarName = @currentResult.builtOuts.last if @currentResult.builtOuts.last
 							end
 						end
 					end
@@ -502,27 +555,8 @@ class AndroidMkParser < AndroidMakefileParser
 
 		ensureNativeIncludes()
 		_envEnsure()
-		@builtOuts.uniq!
 		ensureCompilerOption()
 	end
-
-	DEF_NATIVE_LIB_IDENTIFIER=[
-		Regexp.compile("\(BUILD_(STATIC|SHARED)_LIBRARY\)"),
-		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*(STATIC|SHARED)_LIBRARIES")
-	]
-	DEF_APK_IDENTIFIER=[
-		Regexp.compile("\(BUILD_PACKAGE\)"),
-		#Regexp.compile("\(BUILD_CTS_PACKAGE\)"),
-		Regexp.compile("\(BUILD_PREBUILT\)"),
-		Regexp.compile("\(BUILD_RRO_PACKAGE\)"),
-		Regexp.compile("\(BUILD_PHONY_PACKAGE\)"),
-		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*APPS")
-	]
-	DEF_JAR_IDENTIFIER=[
-		Regexp.compile("\(BUILD_STATIC_JAVA_LIBRARY\)"),
-		Regexp.compile("\(BUILD_JAVA_LIBRARY\)"),
-		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*JAVA_LIBRARIES")
-	]
 
 
 	def initialize(makefilePath, envFlatten, compilerFilter)
@@ -630,7 +664,7 @@ class AndroidBpParser < AndroidMakefileParser
 
 				end
 				if !theBp.empty? then
-					@builtOuts << theBp[DEF_LIB_NAME] if theBp.has_key?(DEF_LIB_NAME)
+					@currentResult.builtOuts << theBp[DEF_LIB_NAME] if theBp.has_key?(DEF_LIB_NAME)
 
 					if DEF_NATIVE_LIB_IDENTIFIER.include?(aCondition) then
 						@isNativeLib = true
@@ -641,9 +675,9 @@ class AndroidBpParser < AndroidMakefileParser
 									anInclude = anInclude.slice(0, anInclude.length-1) if anInclude.end_with?(".")
 									if !anInclude.empty? then
 										theLibIncludePath = getRobustPath(@makefileDirectory, anInclude)
-										@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+										@currentResult.nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
 										theLibIncludePath = getRobustPath(@androidRootPath, anInclude)
-										@nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
+										@currentResult.nativeIncludes << theLibIncludePath if File.exist?(theLibIncludePath)
 									end
 								end
 							end
@@ -652,47 +686,52 @@ class AndroidBpParser < AndroidMakefileParser
 						if theBp.has_key?(DEF_COMPILE_OPTION) then
 							theBp[DEF_COMPILE_OPTION].to_a.each do |anOption|
 								anOption = anOption.to_s.strip
-								@cflags << anOption if !anOption.empty?
+								@currentResult.cflags << anOption if !anOption.empty?
 							end
 						end
-					end
-
-					if DEF_APK_IDENTIFIER.include?(aCondition) then
+					elsif DEF_APK_IDENTIFIER.include?(aCondition) then
 						@isApk = true
 						if theBp.has_key?(DEF_DEX_PREOPT_IDENTIFIER) then
 							val = theBp[DEF_DEX_PREOPT_IDENTIFIER]
 							if val.has_key?(DEF_DEX_PREOPT_ENABLED_IDENTIFIER) then
 								enabled = val[DEF_DEX_PREOPT_ENABLED_IDENTIFIER].to_s
-								@dexPreOpt << enabled if !enabled.empty?
+								@currentResult.dexPreOpt = enabled if enabled
 							end
-						elsif theBp.has_key?(DEF_APK_NAME_IDENTIFIER) then
-							val = theBp[DEF_APK_NAME_IDENTIFIER].to_s
-							@apkName << val if !val.empty?
-						elsif theBp.has_key?(DEF_APK_CERTIFICATE_IDENTIFIER) then
-							val = theBp[DEF_APK_CERTIFICATE_IDENTIFIER].to_s
-							@certificate << val if !val.empty?
 						end
-					end
-
-					if DEF_JAR_IDENTIFIER.include?(aCondition) then
+						if theBp.has_key?(DEF_APK_NAME_IDENTIFIER) then
+							val = theBp[DEF_APK_NAME_IDENTIFIER].to_s
+							@currentResult.apkName = val if val
+						end
+						if theBp.has_key?(DEF_APK_CERTIFICATE_IDENTIFIER) then
+							val = theBp[DEF_APK_CERTIFICATE_IDENTIFIER].to_s
+							@currentResult.certificate = val if val
+						end
+					elsif DEF_JAR_IDENTIFIER.include?(aCondition) then
 						@isJar = true
 						if theBp.has_key?(DEF_JAR_NAME_IDENTIFIER) then
 							val = theBp[DEF_JAR_NAME_IDENTIFIER].to_s
-							@jarName << val if !val.empty?
-						elsif theBp.has_key?(DEF_DEX_PREOPT_IDENTIFIER) then
+							@currentResult.jarName = val if val
+						end
+						if theBp.has_key?(DEF_APK_CERTIFICATE_IDENTIFIER) then
+							val = theBp[DEF_APK_CERTIFICATE_IDENTIFIER].to_s
+							@currentResult.certificate = val if val
+
+						end
+						if theBp.has_key?(DEF_DEX_PREOPT_IDENTIFIER) then
 							val = theBp[DEF_DEX_PREOPT_IDENTIFIER]
 							if val.has_key?(DEF_DEX_PREOPT_ENABLED_IDENTIFIER) then
 								enabled = val[DEF_DEX_PREOPT_ENABLED_IDENTIFIER].to_s
-								@dexPreOpt << enabled if !enabled.empty?
+								@currentResult.dexPreOpt = enabled if enabled
 							end
 						end
 					end
 				end
+				@currentResult = ParseResult.new()
+				@results << @currentResult
 			end
 		end
 
 		ensureNativeIncludes()
-		@builtOuts.uniq!
 		ensureCompilerOption()
 	end
 
