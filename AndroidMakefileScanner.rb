@@ -145,6 +145,8 @@ class AndroidMakefileParser
 		attr_accessor :jarName
 		attr_accessor :certificate
 		attr_accessor :dexPreOpt
+		attr_accessor :optimizeEnabled
+		attr_accessor :optimizeShrink		
 
 		def initialize
 			@builtOuts = []
@@ -157,6 +159,8 @@ class AndroidMakefileParser
 			@jarName = ""
 			@certificate = ""
 			@dexPreOpt = "true"
+			@optimizeEnabled = "true"
+			@optimizeShrink = "true"
 		end
 	end
 
@@ -214,6 +218,8 @@ class AndroidMakefileParser
 				result["builtOuts"] = aResult.builtOuts
 				result["certificate"] = aResult.certificate
 				result["dexPreOpt"] = aResult.dexPreOpt
+				result["optimizeEnabled"] = aResult.optimizeEnabled
+				result["optimizeShrink"] = aResult.optimizeShrink
 			end
 			if @isJar && aResult.jarName then
 				result["jarName"] = aResult.jarName
@@ -461,6 +467,7 @@ class AndroidMkParser < AndroidMakefileParser
 
 	DEF_APK_PACKAGE_NAME_IDENTIFIER = "LOCAL_PACKAGE_NAME"
 	DEF_APK_PREBUILT_NAME_IDENTIFIER = "LOCAL_SRC_FILES"
+	DEF_APK_OPTIMIZE_IDENTIFIER = "LOCAL_PROGUARD_ENABLED"
 	DEF_CERTIFICATE_IDENTIFIER = "LOCAL_CERTIFICATE"
 	DEF_DEX_PREOPT_IDENTIFIER = "LOCAL_DEX_PREOPT"
 
@@ -542,6 +549,14 @@ class AndroidMkParser < AndroidMakefileParser
 						if @enableApkScan && value && value.include?(".apk") then
 							@currentResult.apkName = value
 							@isApk = true
+						end
+					when DEF_APK_OPTIMIZE_IDENTIFIER
+						if @enableApkScan && value then
+							if value.to_s.downcase == "disabled" then
+								@currentResult.optimizeEnabled = false
+							else
+								@currentResult.optimizeEnabled = value
+							end
 						end
 					else
 						if @enableNativeScan then
@@ -638,6 +653,10 @@ class AndroidBpParser < AndroidMakefileParser
 	DEF_APK_PRIVILEGED_IDENTIFIER = "privileged"
 	DEF_APK_PLATFORM_API_IDENTIFIER = "platform_apis"
 
+	DEF_APK_OPTIMIZE_IDENTIFIER = "optimize"
+	DEF_APK_OPTIMIZE_ENABLED_IDENTIFIER = "enabled"
+	DEF_APK_OPTIMIZE_SHRINK_IDENTIFIER = "shrink"
+
 	DEF_DEX_PREOPT_IDENTIFIER = "dex_preopt"
 	DEF_DEX_PREOPT_ENABLED_IDENTIFIER = "enabled"
 
@@ -727,6 +746,17 @@ class AndroidBpParser < AndroidMakefileParser
 						if theBp.has_key?(DEF_CERTIFICATE_IDENTIFIER) then
 							val = theBp[DEF_CERTIFICATE_IDENTIFIER].to_s
 							@currentResult.certificate = val if val
+						end
+						if theBp.has_key?(DEF_APK_OPTIMIZE_IDENTIFIER) then
+							val = theBp[DEF_APK_OPTIMIZE_IDENTIFIER]
+							if val.has_key?(DEF_APK_OPTIMIZE_ENABLED_IDENTIFIER) then
+								theVal = val[DEF_APK_OPTIMIZE_ENABLED_IDENTIFIER].to_s
+								@currentResult.optimizeEnabled = theVal if theVal
+							end
+							if val.has_key?(DEF_APK_OPTIMIZE_SHRINK_IDENTIFIER) then
+								theVal = val[DEF_APK_OPTIMIZE_SHRINK_IDENTIFIER].to_s
+								@currentResult.optimizeShrink = theVal if theVal
+							end
 						end
 					elsif @enableJarScan && DEF_JAR_IDENTIFIER.include?(aCondition) then
 						@isJar = true
