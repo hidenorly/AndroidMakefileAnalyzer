@@ -81,11 +81,12 @@ class AndroidUtil
 		return result
 	end
 
-	def self.getListOfBuiltOuts(builtOutPath, isNativeLib = true, isApk = true, isJar = true)
+	def self.getListOfBuiltOuts(builtOutPath, isNativeLib = true, isApk = true, isJar = true, isApex = true)
 		searchTarget = []
 		searchTarget << "so|a" if isNativeLib
-		searchTarget << "apk|apex" if isApk
+		searchTarget << "apk" if isApk
 		searchTarget << "jar" if isJar
+		searchTarget << "apex" if isApex
 		searchTarget = searchTarget.join("|")
 		searchTarget = searchTarget.slice(0, searchTarget.length-1) if searchTarget.end_with?("|")
 		return searchTarget ? FileUtil.getRegExpFilteredFilesMT2(builtOutPath, "\.(#{searchTarget})$") : []
@@ -143,6 +144,7 @@ class AndroidMakefileParser
 
 		attr_accessor :apkName
 		attr_accessor :jarName
+		attr_accessor :apexName
 		attr_accessor :certificate
 		attr_accessor :dexPreOpt
 		attr_accessor :optimizeEnabled
@@ -157,6 +159,7 @@ class AndroidMakefileParser
 
 			@apkName = ""
 			@jarName = ""
+			@apexName = ""
 			@certificate = ""
 			@dexPreOpt = "true"
 			@optimizeEnabled = "true"
@@ -164,7 +167,7 @@ class AndroidMakefileParser
 		end
 	end
 
-	def initialize(makefilePath, envFlatten, compilerFilter, enableNativeScan = true, enableApkScan = true, enableJarScan = true)
+	def initialize(makefilePath, envFlatten, compilerFilter, enableNativeScan = true, enableApkScan = true, enableJarScan = true, enableApexScan = true)
 		@makefilePath = makefilePath
 		@makefileDirectory = FileUtil.getDirectoryFromPath(makefilePath)
 		@androidRootPath = AndroidUtil.getAndroidRootPath(makefilePath)
@@ -173,10 +176,12 @@ class AndroidMakefileParser
 		@isNativeLib = false
 		@isApk = false
 		@isJar = false
+		@isApex = false
 
 		@enableNativeScan = enableNativeScan
 		@enableApkScan = enableApkScan
 		@enableJarScan = enableJarScan
+		@enableApexScan = enableApexScan
 
 		@currentResult = ParseResult.new()
 		@results = [@currentResult]
@@ -194,6 +199,10 @@ class AndroidMakefileParser
 
 	def isJar		
 		return @isJar
+	end
+
+	def isApex
+		return @isApex
 	end
 
 	def getResults(defaultVersion)
@@ -228,6 +237,12 @@ class AndroidMakefileParser
 				result["certificate"] = aResult.certificate
 				result["dexPreOpt"] = aResult.dexPreOpt
 			end
+			if @isApex && aResult.apexName then
+				result["apexName"] = aResult.apexName
+				result["apexPath"] = aResult.builtOuts
+				result["builtOuts"] = aResult.builtOuts
+				result["certificate"] = aResult.certificate
+			end
 
 			results << result if !result.empty?
 		end
@@ -250,6 +265,7 @@ class AndroidMakefileParser
 			targets << aResult["libName"] if aResult.has_key?("libName")
 			targets << aResult["apkName"] if aResult.has_key?("apkName")
 			targets << aResult["jarName"] if aResult.has_key?("jarName")
+			targets << aResult["apexName"] if aResult.has_key?("apexName")
 
 			if !targets.empty? then
 				replacedResults = []
@@ -265,21 +281,25 @@ class AndroidMakefileParser
 				builtOuts = []
 				apkName = ""
 				jarName = ""
+				apexName = ""
 				replacedResults.each do |aReplacedResult|
 					aReplacedResult = aReplacedResult.to_s
 					builtOuts << aReplacedResult if aReplacedResult.end_with?(".so") || aReplacedResult.end_with?(".a") || aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex") || aReplacedResult.end_with?(".jar")
-					apkName = aReplacedResult if aReplacedResult.end_with?(".apk") || aReplacedResult.end_with?(".apex")
+					apkName = aReplacedResult if aReplacedResult.end_with?(".apk")
 					jarName = aReplacedResult if aReplacedResult.end_with?(".jar")
+					apexName = aReplacedResult if aReplacedResult.end_with?(".apex")
 				end
 
 				aResult["builtOuts"] = builtOuts if !builtOuts.empty? || enableOnlyFoundBuiltOuts
 				aResult["apkName"] = apkName if apkName || enableOnlyFoundBuiltOuts
 				aResult["jarName"] = jarName if jarName || enableOnlyFoundBuiltOuts
+				aResult["apexName"] = apexName if apexName || enableOnlyFoundBuiltOuts
 			end
 
 			aResult["libName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["builtOuts"].to_a[0]) if !aResult["builtOuts"].to_a.empty?
 			aResult["apkName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["apkName"]) if aResult["apkName"]
 			aResult["jarName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["jarName"]) if aResult["jarName"]
+			aResult["apexName"] = AndroidUtil.getFilenameFromPathWithoutExt(aResult["apexName"]) if aResult["apexName"]
 
 			result << aResult if !enableOnlyFoundBuiltOuts || found
 		end
@@ -593,13 +613,13 @@ class AndroidMkParser < AndroidMakefileParser
 	end
 
 
-	def initialize(makefilePath, envFlatten, compilerFilter, enableNativeScan = true, enableApkScan = true, enableJarScan = true)
-		super(makefilePath, envFlatten, compilerFilter, enableNativeScan, enableApkScan, enableJarScan)
+	def initialize(makefilePath, envFlatten, compilerFilter, enableNativeScan = true, enableApkScan = true, enableJarScan = true, enableApexScan = true)
+		super(makefilePath, envFlatten, compilerFilter, enableNativeScan, enableApkScan, enableJarScan, enableApexScan)
 
 		@env = {}
 		@env["call my-dir"] = FileUtil.getDirectoryFromPath(@makefilePath)
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
-		targetIdentifiers = DEF_NATIVE_LIB_IDENTIFIER | DEF_APK_IDENTIFIER | DEF_JAR_IDENTIFIER
+		targetIdentifiers = DEF_NATIVE_LIB_IDENTIFIER | DEF_APK_IDENTIFIER | DEF_JAR_IDENTIFIER # APEX by Android.mk?
 		targetIdentifiers.each do | aCondition |
 			result = makefileBody.grep(aCondition)
 			if !result.empty? then
@@ -607,6 +627,7 @@ class AndroidMkParser < AndroidMakefileParser
 				@isNativeLib = true if @enableNativeScan && DEF_NATIVE_LIB_IDENTIFIER.include?(aCondition)
 				@isApk = true if @enableApkScan && DEF_APK_IDENTIFIER.include?(aCondition)
 				@isJar = true if @enableJarScan && DEF_JAR_IDENTIFIER.include?(aCondition)
+				@isApex = false
 				#break
 			end
 		end
@@ -668,6 +689,10 @@ class AndroidBpParser < AndroidMakefileParser
 	]
 	DEF_JAR_NAME_IDENTIFIER = "name"
 
+	DEF_APEX_IDENTIFIER = ["module_apex"]
+	DEF_APEX_NAME_IDENTIFIER = "name"
+
+
 	def ensureJson(body)
 		return "{ #{body} }".gsub(/(\w+)\s*:/, '"\1":').gsub(/,(?= *\])/, '').gsub(/,(?= *\})/, '')
 	end
@@ -691,6 +716,7 @@ class AndroidBpParser < AndroidMakefileParser
 		targetIdentifier = targetIdentifier | DEF_NATIVE_LIB_IDENTIFIER if @enableNativeScan
 		targetIdentifier = targetIdentifier | DEF_APK_IDENTIFIER if @enableApkScan
 		targetIdentifier = targetIdentifier | DEF_JAR_IDENTIFIER if @enableJarScan
+		targetIdentifier = targetIdentifier | DEF_APEX_IDENTIFIER if @enableApexScan
 
 		targetIdentifier.each do |aCondition|
 			pos = body.index(aCondition)
@@ -776,6 +802,17 @@ class AndroidBpParser < AndroidMakefileParser
 								@currentResult.dexPreOpt = enabled if enabled
 							end
 						end
+					elsif @enableApexScan && DEF_APEX_IDENTIFIER.include?(aCondition) then
+						@isApex = true
+						if theBp.has_key?(DEF_APEX_NAME_IDENTIFIER) then
+							val = theBp[DEF_APEX_NAME_IDENTIFIER].to_s
+							@currentResult.apexName = val if val
+						end
+						if theBp.has_key?(DEF_CERTIFICATE_IDENTIFIER) then
+							val = theBp[DEF_CERTIFICATE_IDENTIFIER].to_s
+							@currentResult.certificate = val if val
+
+						end
 					end
 				end
 				@currentResult = ParseResult.new()
@@ -787,8 +824,8 @@ class AndroidBpParser < AndroidMakefileParser
 		ensureCompilerOption()
 	end
 
-	def initialize(makefilePath, envFlatten, compilerFilter, enableNativeScan = true, enableApkScan = true, enableJarScan = true)
-		super(makefilePath, envFlatten, compilerFilter, enableNativeScan, enableApkScan, enableJarScan)
+	def initialize(makefilePath, envFlatten, compilerFilter, enableNativeScan = true, enableApkScan = true, enableJarScan = true, enableApexScan = true)
+		super(makefilePath, envFlatten, compilerFilter, enableNativeScan, enableApkScan, enableJarScan, enableApexScan)
 
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
 		parseMakefile(makefileBody)
@@ -1170,7 +1207,7 @@ end
 
 
 class AndroidMakefileParserExecutor < TaskAsync
-	def initialize(resultCollector, makefilePath, version, envFlatten, compilerFilter, isNative, isApk, isJar)
+	def initialize(resultCollector, makefilePath, version, envFlatten, compilerFilter, isNative, isApk, isJar, isApex)
 		super("AndroidMakefileParserExecutor #{makefilePath}")
 		@resultCollector = resultCollector
 		@makefilePath = makefilePath.to_s
@@ -1180,10 +1217,11 @@ class AndroidMakefileParserExecutor < TaskAsync
 		@isNative = isNative
 		@isApk = isApk
 		@isJar = isJar
+		@isApex = isApex
 	end
 
 	def execute
-		parser = @makefilePath.end_with?(".mk") ? AndroidMkParser.new( @makefilePath, @envFlatten, @compilerFilter, @isNative, @isApk, @isJar ) : AndroidBpParser.new( @makefilePath, @envFlatten, @compilerFilter, @isNative, @isApk, @isJar )
+		parser = @makefilePath.end_with?(".mk") ? AndroidMkParser.new( @makefilePath, @envFlatten, @compilerFilter, @isNative, @isApk, @isJar ) : AndroidBpParser.new( @makefilePath, @envFlatten, @compilerFilter, @isNative, @isApk, @isJar, @isApex )
 		results = parser.getResults(@version)
 		@resultCollector.onResult(@makefilePath, results) if results && !results.empty?
 		_doneTask()
@@ -1194,10 +1232,11 @@ end
 #---- main --------------------------
 options = {
 	:verbose => false,
-	:mode => "nativeLib|apk|jar",
+	:mode => "nativeLib|apk|jar|apex",
 	:libFields => "libName|version|headers|libs|gcc_options",
 	:apkFields => "apkName|apkPath|certificate|dexPreOpt",
 	:jarFields => "jarName|jarPath",
+	:apexFields => "apexName|apexPath",
 	:envFlatten => false,
 	:reportFormat => "xml",
 	:outFolder => nil,
@@ -1214,7 +1253,7 @@ resultCollector = ResultCollectorHash.new()
 opt_parser = OptionParser.new do |opts|
 	opts.banner = "Usage: usage ANDROID_HOME"
 
-	opts.on("-m", "--mode=", "Set analysis modes nativLib|apk|jar (default:#{options[:mode]})") do |mode|
+	opts.on("-m", "--mode=", "Set analysis modes nativLib|apk|jar|apex (default:#{options[:mode]})") do |mode|
 		options[:mode] = mode.to_s
 	end
 
@@ -1241,6 +1280,10 @@ opt_parser = OptionParser.new do |opts|
 
 	opts.on("", "--jarFields=", "Specify jar custom fields (default:#{options[:jarFields]})") do |jarFields|
 		options[:jarFields] = jarFields
+	end
+
+	opts.on("", "--apexFields=", "Specify apex custom fields (default:#{options[:apexFields]})") do |apexFields|
+		options[:apexFields] = apexFields
 	end
 
 	opts.on("-e", "--envFlatten", "Enable env value flatten") do
@@ -1303,10 +1346,11 @@ end
 isNative = options[:mode].include?("nativeLib")
 isApk = options[:mode].include?("apk")
 isJar = options[:mode].include?("jar")
+isApex = options[:mode].include?("apex")
 
 builtOuts = []
 if options[:outFolder] then
-	builtOuts = AndroidUtil.getListOfBuiltOuts(options[:outFolder], isNative, isApk, isJar)
+	builtOuts = AndroidUtil.getListOfBuiltOuts(options[:outFolder], isNative, isApk, isJar, isApex)
 end
 
 puts makefilePaths if options[:verbose]
@@ -1316,7 +1360,7 @@ compilerFilter = options[:compiler] == "gcc" ? CompilerFilterGcc : CompilerFilte
 result = []
 taskMan = ThreadPool.new( options[:numOfThreads].to_i )
 makefilePaths.each do | aMakefilePath |
-	taskMan.addTask( AndroidMakefileParserExecutor.new( resultCollector, aMakefilePath, options[:version], options[:envFlatten], compilerFilter, isNative, isApk, isJar ) )
+	taskMan.addTask( AndroidMakefileParserExecutor.new( resultCollector, aMakefilePath, options[:version], options[:envFlatten], compilerFilter, isNative, isApk, isJar, isApex ) )
 end
 taskMan.executeAll()
 taskMan.finalize()
@@ -1336,6 +1380,7 @@ end
 nativeLibs = []
 apks = []
 jars = []
+apexs = []
 result.each do |aResult|
 	# ensure "libs" for native lib and ensure "apkPath" for apk
 	aResult["libs"] = []
@@ -1345,11 +1390,13 @@ result.each do |aResult|
 		aBuiltOut = aBuiltOut.to_s
 		filename = FileUtil.getFilenameFromPath(aBuiltOut)
 		aResult["libs"] << aBuiltOut if aBuiltOut.end_with?(".so") || filename.start_with?("lib")
+		aResult["apexPath"] << aBuiltOut if aBuiltOut.end_with?(".apex")
 		aResult["jarPath"] << aBuiltOut if aBuiltOut.end_with?(".jar") || !filename.include?(".")
 	end
 	aResult["libs"].uniq!
 	aResult["jarPath"].uniq!
-	aResult["apkPath"] = (aResult["builtOuts"] - aResult["libs"] - aResult["jarPath"]).uniq # then apkPath is only apks as of now.
+	aResult["apexPath"].uniq!
+	aResult["apkPath"] = (aResult["builtOuts"] - aResult["libs"] - aResult["jarPath"] - aResult["apexPath"] ).uniq # then apkPath is only apks as of now.
 
 	# for nativeLibs
 	if aResult.has_key?("libName") && !aResult["libName"].empty? && !aResult["libs"].empty? then
@@ -1369,23 +1416,34 @@ result.each do |aResult|
 	if aResult.has_key?("jarName") && !aResult["jarName"].empty? then
 		jars << aResult
 	end
+
+	# for apexs
+	if aResult.has_key?("apexName") && !aResult["apexName"].empty? then
+		apexs << aResult
+	end
 end
 
 isMultipleReports = !options[:mode].split("|").empty?
-if options[:mode].include?("nativeLib") then
+if isNative then
 	_reporter = reporter.new( options[:reportOutPath] )
 	_reporter.report( nativeLibs, options[:libFields], options )
 	_reporter.close()
 end
 
-if options[:mode].include?("apk") then
+if isApk then
 	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
 	_reporter.report( apks, options[:apkFields], options )
 	_reporter.close()
 end
 
-if options[:mode].include?("jar") then
+if isJar then
 	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
 	_reporter.report( jars, options[:jarFields], options )
+	_reporter.close()
+end
+
+if isApex then
+	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
+	_reporter.report( apexs, options[:apexFields], options )
 	_reporter.close()
 end
