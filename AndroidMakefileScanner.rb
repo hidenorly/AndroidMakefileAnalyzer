@@ -485,20 +485,30 @@ class AndroidMkParser < AndroidMakefileParser
 		"LOCAL_CONLYFLAGS"
 	]
 
+
+	DEF_PREBUILT_NAME_IDENTIFIER = "LOCAL_SRC_FILES"
+	DEF_PREBUILT_LIBS_IDENTIFIER = "LOCAL_PREBUILT_LIBS"
+	DEF_PREBUILT_JAR_IDENTIFIER = "LOCAL_PREBUILT_JAVA_LIBRARIES"
+	DEF_PREBUILT_STATIC_JAR_IDENTIFIER = "LOCAL_PREBUILT_STATIC_JAVA_LIBRARIES"
+
+
 	DEF_APK_PACKAGE_NAME_IDENTIFIER = "LOCAL_PACKAGE_NAME"
-	DEF_APK_PREBUILT_NAME_IDENTIFIER = "LOCAL_SRC_FILES"
 	DEF_APK_OPTIMIZE_IDENTIFIER = "LOCAL_PROGUARD_ENABLED"
 	DEF_CERTIFICATE_IDENTIFIER = "LOCAL_CERTIFICATE"
 	DEF_DEX_PREOPT_IDENTIFIER = "LOCAL_DEX_PREOPT"
 
 	DEF_NATIVE_LIB_IDENTIFIER=[
 		Regexp.compile("\(BUILD_(STATIC|SHARED)_LIBRARY\)"),
+		Regexp.compile("\(PREBUILT_SHARED_LIBRARY\)")
 #		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*(STATIC|SHARED)_LIBRARIES")
+	]
+	DEF_PREBUILT_IDENTIFIER=[
+		Regexp.compile("\(BUILD_PREBUILT\)"),
+		Regexp.compile("\(BUILD_MULTI_PREBUILT\)")
 	]
 	DEF_APK_IDENTIFIER=[
 		Regexp.compile("\(BUILD_PACKAGE\)"),
 		#Regexp.compile("\(BUILD_CTS_PACKAGE\)"),
-		Regexp.compile("\(BUILD_PREBUILT\)"),
 		Regexp.compile("\(BUILD_RRO_PACKAGE\)"),
 		Regexp.compile("\(BUILD_PHONY_PACKAGE\)"),
 #		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*APPS")
@@ -509,10 +519,9 @@ class AndroidMkParser < AndroidMakefileParser
 #		Regexp.compile("LOCAL_MODULE_CLASS.*\=.*JAVA_LIBRARIES")
 	]
 
-
 	def parseMakefile(makefileBody)
 		theLine = ""
-		targetIdentifiers = []
+		targetIdentifiers = DEF_PREBUILT_IDENTIFIER
 		targetIdentifiers = targetIdentifiers | DEF_NATIVE_LIB_IDENTIFIER if @enableNativeScan
 		targetIdentifiers = targetIdentifiers | DEF_APK_IDENTIFIER if @enableApkScan
 		targetIdentifiers = targetIdentifiers | DEF_JAR_IDENTIFIER if @enableJarScan
@@ -521,10 +530,12 @@ class AndroidMkParser < AndroidMakefileParser
 			aLine.strip!
 			targetIdentifiers.each do |aCondition|
 				if aLine.match(aCondition) then
-					theName = AndroidUtil.getFilenameFromPathWithoutExt(@currentResult.builtOuts.to_a[0])
-					@currentResult.libName = theName if DEF_NATIVE_LIB_IDENTIFIER.include?(aCondition)
-					@currentResult.apkName = theName if DEF_APK_IDENTIFIER.include?(aCondition)
-					@currentResult.jarName = theName if DEF_JAR_IDENTIFIER.include?(aCondition)
+					@currentResult.builtOuts.each do |aBuiltOut|
+						theName = AndroidUtil.getFilenameFromPathWithoutExt(aBuiltOut)
+						@currentResult.libName = theName if DEF_NATIVE_LIB_IDENTIFIER.include?(aCondition)
+						@currentResult.apkName = theName if DEF_APK_IDENTIFIER.include?(aCondition)
+						@currentResult.jarName = theName if DEF_JAR_IDENTIFIER.include?(aCondition)
+					end
 					@currentResult = ParseResult.new()
 					@results << @currentResult
 				end
@@ -565,10 +576,26 @@ class AndroidMkParser < AndroidMakefileParser
 						if @enableApkScan || @enableJarScan then
 							@currentResult.certificate = value if value
 						end
-					when DEF_APK_PREBUILT_NAME_IDENTIFIER
-						if @enableApkScan && value && value.include?(".apk") then
-							@currentResult.apkName = value
-							@isApk = true
+					when DEF_PREBUILT_LIBS_IDENTIFIER, DEF_PREBUILT_JAR_IDENTIFIER, DEF_PREBUILT_STATIC_JAR_IDENTIFIER
+						values = value.split(" ")
+						@currentResult.builtOuts = (@currentResult.builtOuts | values).uniq
+					when DEF_PREBUILT_NAME_IDENTIFIER
+						values = value.split(" ")
+						values.each do | value |
+							@currentResult.builtOuts << value if value.include?(".apk") || value.include?(".apex") || value.include?(".so") || value.include?(".jar")
+							if @enableApkScan && value.include?(".apk") then
+								@currentResult.apkName = value
+								@isApk = true
+							elsif @enableNativeScan && value.include?(".so") then
+								@currentResult.libName = value
+								@isNativeLib = true
+							elsif @enableJarScan && value.include?(".jar") then
+								@currentResult.jarName = value
+								@isJar = true
+							elsif @enableApexScan && value.include?(".apex") then
+								@currentResult.apexName = value
+								@isApex = true
+							end
 						end
 					when DEF_APK_OPTIMIZE_IDENTIFIER
 						if @enableApkScan && value then
@@ -1207,21 +1234,21 @@ end
 
 
 class AndroidMakefileParserExecutor < TaskAsync
-	def initialize(resultCollector, makefilePath, version, envFlatten, compilerFilter, isNative, isApk, isJar, isApex)
+	def initialize(resultCollector, makefilePath, version, envFlatten, compilerFilter, isNativeLib, isApk, isJar, isApex)
 		super("AndroidMakefileParserExecutor #{makefilePath}")
 		@resultCollector = resultCollector
 		@makefilePath = makefilePath.to_s
 		@version = version
 		@envFlatten = envFlatten
 		@compilerFilter = compilerFilter
-		@isNative = isNative
+		@isNativeLib = isNativeLib
 		@isApk = isApk
 		@isJar = isJar
 		@isApex = isApex
 	end
 
 	def execute
-		parser = @makefilePath.end_with?(".mk") ? AndroidMkParser.new( @makefilePath, @envFlatten, @compilerFilter, @isNative, @isApk, @isJar ) : AndroidBpParser.new( @makefilePath, @envFlatten, @compilerFilter, @isNative, @isApk, @isJar, @isApex )
+		parser = @makefilePath.end_with?(".mk") ? AndroidMkParser.new( @makefilePath, @envFlatten, @compilerFilter, @isNativeLib, @isApk, @isJar ) : AndroidBpParser.new( @makefilePath, @envFlatten, @compilerFilter, @isNativeLib, @isApk, @isJar, @isApex )
 		results = parser.getResults(@version)
 		@resultCollector.onResult(@makefilePath, results) if results && !results.empty?
 		_doneTask()
@@ -1385,6 +1412,7 @@ result.each do |aResult|
 	# ensure "libs" for native lib and ensure "apkPath" for apk
 	aResult["libs"] = []
 	aResult["jarPath"] = []
+	aResult["apexPath"] = []
 	aResult["builtOuts"] = aResult["builtOuts"].to_a
 	aResult["builtOuts"].each do |aBuiltOut|
 		aBuiltOut = aBuiltOut.to_s
