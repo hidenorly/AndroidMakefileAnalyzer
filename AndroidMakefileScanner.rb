@@ -669,14 +669,20 @@ end
 
 
 class AndroidBpParser < AndroidMakefileParser
-	DEF_NATIVE_LIB_IDENTIFIER=[
+	DEF_DEFAULTS_IDENTIFIER = "defaults"
+	DEF_DEFAULTS_IDENTIFIERS = [
 		"cc_defaults",
+		"java_defaults",
+		"rust_defaults",
+		"apex_defaults"
+	]
+	DEF_NATIVE_LIB_IDENTIFIER=[
 		"cc_library",
 		"cc_library_shared",
 		"cc_library_static"
 	]
 
-	DEF_LIB_NAME = "name"
+	DEF_NAME_IDENTIFIER = "name"
 	DEF_INCLUDE_DIRS = [
 		"export_include_dirs",
 		"header_libs",
@@ -736,6 +742,62 @@ class AndroidBpParser < AndroidMakefileParser
 		return result
 	end
 
+	def getCorrespondingDefaults(body, targetDefaults)
+		result = {}
+
+		DEF_DEFAULTS_IDENTIFIERS.each do |aCondition|
+			pos = body.index(aCondition)
+			if pos then
+				theBody = StrUtil.getBlacket(body, "{", "}", pos)
+				ensuredJson = ensureJson(theBody)
+
+				theBp = {}
+				begin
+					theBp = JSON.parse(ensuredJson)
+				rescue => ex
+
+				end
+				if theBp.has_key?(DEF_NAME_IDENTIFIER) then
+					if theBp[DEF_NAME_IDENTIFIER] == targetDefaults then
+						result = theBp
+						break
+					end
+				end
+			end
+		end
+
+		return result
+	end
+
+	def ensureDefaults(body, theBp)
+		result = theBp
+
+		if theBp.has_key?(DEF_DEFAULTS_IDENTIFIER) then
+			defaults = theBp[DEF_DEFAULTS_IDENTIFIER]
+			defaults.each do |aDefault|
+				theDefault = getCorrespondingDefaults(body, aDefault)
+				theDefault.delete( DEF_NAME_IDENTIFIER )
+				theBp.delete( DEF_DEFAULTS_IDENTIFIER )
+				#theBp = theBp.merge( theDefault )
+				theDefault.each do |key,value|
+					if !theBp.has_key?(key) then
+						theBp[key] = value
+					else
+						if value.kind_of?(Array) && theBp[key].kind_of?(Array) then
+							theBp[key] = theBp[key] | value
+						elsif value.kind_of?(Hash) && theBp[key].kind_of?(Hash) then
+							theBp[key] = theBp[key].merge( value )
+						end
+					end
+				end
+			end
+			result = theBp
+		end
+
+		return result
+	end
+
+
 	def parseMakefile(makefileBody)
 		body = removeRemark(makefileBody).join(" ")
 
@@ -758,7 +820,9 @@ class AndroidBpParser < AndroidMakefileParser
 
 				end
 				if !theBp.empty? then
-					@currentResult.builtOuts << theBp[DEF_LIB_NAME] if theBp.has_key?(DEF_LIB_NAME)
+					theBp = ensureDefaults(body, theBp)
+
+					@currentResult.builtOuts << theBp[DEF_NAME_IDENTIFIER] if theBp.has_key?(DEF_NAME_IDENTIFIER)
 
 					if @enableNativeScan && DEF_NATIVE_LIB_IDENTIFIER.include?(aCondition) then
 						@isNativeLib = true
