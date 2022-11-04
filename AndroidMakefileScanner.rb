@@ -1456,6 +1456,7 @@ end
 taskMan.executeAll()
 taskMan.finalize()
 _result = resultCollector.getResult()
+_result = _result.sort
 
 _result.each do | makefilePath, theResults |
 	theResults.each do |aResult|
@@ -1513,6 +1514,10 @@ result.each do |aResult|
 	if aResult.has_key?("apexName") && !aResult["apexName"].empty? then
 		apexs << aResult
 	end
+end
+
+if reporter == XmlReporterPerLib then
+	FileUtil.ensureDirectory( options[:reportOutPath] )
 end
 
 isMultipleReports = !options[:mode].split("|").empty?
