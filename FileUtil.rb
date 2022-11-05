@@ -19,16 +19,16 @@ class FileUtil
 	def self.ensureDirectory(path)
 		paths = path.to_s.split("/")
 		path = ""
-		begin
-			paths.each do |aPath|
-				if !path.empty? then
-					path += "/"+aPath
-				else
-					path = aPath
-				end
-				Dir.mkdir(path) if !Dir.exist?(path)
+		paths.each do |aPath|
+			if !path.empty? then
+				path += "/"+aPath
+			else
+				path = aPath
 			end
-		rescue => e
+			begin
+				Dir.mkdir(path) if !Dir.exist?(path)
+			rescue => e
+			end
 		end
 	end
 
