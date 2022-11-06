@@ -81,6 +81,29 @@ class AndroidUtil
 		return result
 	end
 
+
+	DEF_INTERMEDIATE_BUILTOUTS=[
+		"/obj/PACKAGING/target_files_intermediates/",
+		"/obj/SHARED_LIBRARIES/",
+		"/symbols/"
+	]
+
+	def self.excludesKnownIntermediatesBuiltOuts(builtOuts)
+		results = []
+		builtOuts.each do | aBuiltOut |
+			isExclude = false
+			DEF_INTERMEDIATE_BUILTOUTS.each do |anExclusion|
+				if aBuiltOut.include?(anExclusion) then
+					isExclude = true
+					break
+				end
+			end
+			results << aBuiltOut if !isExclude
+		end
+		return results
+	end
+
+
 	def self.getListOfBuiltOuts(builtOutPath, isNativeLib = true, isApk = true, isJar = true, isApex = true)
 		searchTarget = []
 		searchTarget << "so|a" if isNativeLib
@@ -89,7 +112,7 @@ class AndroidUtil
 		searchTarget << "apex" if isApex
 		searchTarget = searchTarget.join("|")
 		searchTarget = searchTarget.slice(0, searchTarget.length-1) if searchTarget.end_with?("|")
-		return searchTarget ? FileUtil.getRegExpFilteredFilesMT2(builtOutPath, "\.(#{searchTarget})$") : []
+		return searchTarget ? excludesKnownIntermediatesBuiltOuts( FileUtil.getRegExpFilteredFilesMT2(builtOutPath, "\.(#{searchTarget})$") ) : []
 	end
 
 	DEF_BUILTS_OUT_EXTS=[
