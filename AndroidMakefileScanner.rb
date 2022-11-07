@@ -85,6 +85,7 @@ class AndroidUtil
 	DEF_INTERMEDIATE_BUILTOUTS=[
 		"/obj/PACKAGING/target_files_intermediates/",
 		"/obj/SHARED_LIBRARIES/",
+		"/obj/JAVA_LIBRARIES/",
 		"/symbols/"
 	]
 
