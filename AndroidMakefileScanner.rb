@@ -1546,27 +1546,31 @@ if reporter == XmlReporterPerLib then
 	FileUtil.ensureDirectory( options[:reportOutPath] )
 end
 
-isMultipleReports = !options[:mode].split("|").empty?
+isAlreadyCreated = false
 if isNative then
-	_reporter = reporter.new( options[:reportOutPath] )
+	_reporter = reporter.new( options[:reportOutPath], isAlreadyCreated )
 	_reporter.report( nativeLibs, options[:libFields], options )
 	_reporter.close()
+	isAlreadyCreated = true
 end
 
 if isApk then
-	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
+	_reporter = reporter.new( options[:reportOutPath], isAlreadyCreated )
 	_reporter.report( apks, options[:apkFields], options )
 	_reporter.close()
+	isAlreadyCreated = true
 end
 
 if isJar then
-	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
+	_reporter = reporter.new( options[:reportOutPath], isAlreadyCreated )
 	_reporter.report( jars, options[:jarFields], options )
 	_reporter.close()
+	isAlreadyCreated = true
 end
 
 if isApex then
-	_reporter = reporter.new( options[:reportOutPath], isMultipleReports )
+	_reporter = reporter.new( options[:reportOutPath], isAlreadyCreated )
 	_reporter.report( apexs, options[:apexFields], options )
 	_reporter.close()
+	isAlreadyCreated = true
 end
