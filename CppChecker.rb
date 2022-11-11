@@ -69,17 +69,110 @@ class RepoUtil
 	end
 end
 
+class AndroidUtil
+	DEF_ANDROID_ROOT=[
+	    "/system/",
+	    "/frameworks/",
+	    "/device/",
+	    "/vendor/",
+	    "/packages/",
+	    "/external/",
+	    "/hardware/",
+	    "/build/",
+	    "/compatibility/",
+	    "/bootable/",
+	    "/bionic/",
+	    "/art/",
+	    "/dalvik/",
+	    "/cts/",
+	    "/developers/",
+	    "/development/",
+	    "/kernel/",
+	    "/libnativehelper/",
+	    "/pdk/",
+	    "/sdk/",
+	    "/prebuilts/",
+	    "/platform_testing/",
+	    "/test/",
+	    "/toolchain/",
+	    "/tools/"
+	]
 
-class CppCheckExecutor < TaskAsync
-	def initialize(resultCollector, path)
-		super("CppCheckExecutor #{path}")
-		@resultCollector = resultCollector
-		@path = path.to_s
+	def self.getAndroidRootPath(path)
+		result = ""
+		DEF_ANDROID_ROOT.each do |aPath|
+			pos = path.index(aPath)
+			if pos then
+				result = path.slice(0, pos)
+				break
+			end
+		end
+		return result
+	end
+end
+
+
+class CppChecker
+	DEF_CPPCHECK = "cppcheck"
+	DEF_CPPCHECK_TEMPLATE = "[{file}],[{line}],[{severity}],[{id}],[{message}]"
+	DEF_EXEC_TIMEOUT = 60*3
+
+	def initialize(targetPath, mode, timeOut=DEF_EXEC_TIMEOUT)
+		@targetPath = File.expand_path(targetPath)
+		@mode = mode
+		@timeOut = timeOut
+	end
+
+	def _parseResult(aLine)
+		result = {}
+
+		_result = aLine.split("],[")
+		if _result.length >= 5 then
+			found = true
+			result["filename"] = _result[0].slice(1, _result[0].length)
+			result["line"] = _result[1]
+			result["severity"] = _result[2]
+			result["id"] = _result[3]
+			_result.shift(4)
+			_result = _result.join("\",\"")
+			result["message"] = _result
+		end
+		return result
 	end
 
 	def execute
 		results = []
-		@resultCollector.onResult(@path, results) if @resultCollector && results && !results.empty?
+
+		exec_cmd = "#{DEF_CPPCHECK} --quiet --template=\"#{DEF_CPPCHECK_TEMPLATE}\""
+		exec_cmd = exec_cmd + " --mode=#{@mode}" if @mode && !@mode.empty?
+		exec_cmd = exec_cmd + " ."
+
+		resultLines = ExecUtil.getExecResultEachLineWithTimeout(exec_cmd, @targetPath, @timeOut, true, true)
+
+		resultLines.each do |aLine|
+			_result = _parseResult(aLine)
+			results << _result if !_result.empty?
+		end
+
+		return results
+	end
+end
+
+
+class CppCheckExecutor < TaskAsync
+	def initialize(resultCollector, path, options)
+		super("CppCheckExecutor #{path}")
+		@resultCollector = resultCollector
+		@path = path.to_s
+		@cppCheck = CppChecker.new( path, options[:mode] )
+	end
+
+	def execute
+		results = {}
+		results["name"]= FileUtil.getFilenameFromPath(@path)
+		results["path"]= @path.slice( AndroidUtil.getAndroidRootPath(@path).to_s.length, @path.length )
+		results["results"]=@cppCheck.execute()
+		@resultCollector.onResult(@path, results) if @resultCollector && !results["results"].empty?
 		_doneTask()
 	end
 end
@@ -90,6 +183,9 @@ end
 options = {
 	:verbose => false,
 	:reportOutPath => nil,
+	:gitOpt => nil,
+	:exceptFiles => "test",
+	:mode => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
 }
 
@@ -136,13 +232,14 @@ else
 		exit(-1)
 	else
 		componentPaths = RepoUtil.getPathesFromManifest( ARGV[0] )
+		componentPaths = [ ARGV[0] ] if componentPaths.empty?
 	end
 end
 
 
 taskMan = ThreadPool.new( options[:numOfThreads].to_i )
 componentPaths.each do | aPath |
-	taskMan.addTask( CppCheckExecutor.new( resultCollector, aPath ) )
+	taskMan.addTask( CppCheckExecutor.new( resultCollector, aPath, options ) )
 end
 taskMan.executeAll()
 taskMan.finalize()
@@ -150,6 +247,11 @@ taskMan.finalize()
 _result = resultCollector.getResult()
 _result = _result.sort
 
+results = []
+_result.each do |moduleName, theResult|
+	results << theResult
+end
+
 _reporter = reporter.new( options[:reportOutPath] )
-_reporter.report( _result, nil, options )
+_reporter.report( results )
 _reporter.close()
