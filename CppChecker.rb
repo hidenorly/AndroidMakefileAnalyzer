@@ -117,9 +117,9 @@ class CppChecker
 	DEF_CPPCHECK_TEMPLATE = "[{file}],[{line}],[{severity}],[{id}],[{message}]"
 	DEF_EXEC_TIMEOUT = 60*3
 
-	def initialize(targetPath, mode, timeOut=DEF_EXEC_TIMEOUT)
+	def initialize(targetPath, optEnable, timeOut=DEF_EXEC_TIMEOUT)
 		@targetPath = File.expand_path(targetPath)
-		@mode = mode
+		@optEnable = optEnable
 		@timeOut = timeOut
 	end
 
@@ -134,7 +134,7 @@ class CppChecker
 			result["severity"] = _result[2]
 			result["id"] = _result[3]
 			_result.shift(4)
-			_result = _result.join("\",\"")
+			_result = _result.join("],[")
 			result["message"] = _result
 		end
 		return result
@@ -144,7 +144,7 @@ class CppChecker
 		results = []
 
 		exec_cmd = "#{DEF_CPPCHECK} --quiet --template=\"#{DEF_CPPCHECK_TEMPLATE}\""
-		exec_cmd = exec_cmd + " --mode=#{@mode}" if @mode && !@mode.empty?
+		exec_cmd = exec_cmd + " --enable=#{@optEnable}" if @optEnable && !@optEnable.empty?
 		exec_cmd = exec_cmd + " ."
 
 		resultLines = ExecUtil.getExecResultEachLineWithTimeout(exec_cmd, @targetPath, @timeOut, true, true)
@@ -164,15 +164,16 @@ class CppCheckExecutor < TaskAsync
 		super("CppCheckExecutor #{path}")
 		@resultCollector = resultCollector
 		@path = path.to_s
-		@cppCheck = CppChecker.new( path, options[:mode] )
+		@options = options
+		@cppCheck = CppChecker.new( path, options[:optEnable] )
 	end
 
 	def execute
 		results = {}
-		results["name"]= FileUtil.getFilenameFromPath(@path)
-		results["path"]= @path.slice( AndroidUtil.getAndroidRootPath(@path).to_s.length, @path.length )
-		results["results"]=@cppCheck.execute()
-		@resultCollector.onResult(@path, results) if @resultCollector && !results["results"].empty?
+		results[:name]= FileUtil.getFilenameFromPath(@path)
+		results[:path]= @path.slice( AndroidUtil.getAndroidRootPath(@path).to_s.length, @path.length )
+		results[:results]=@cppCheck.execute()
+		@resultCollector.onResult(@path, results) if @resultCollector && !results[:results].empty?
 		_doneTask()
 	end
 end
@@ -183,9 +184,10 @@ end
 options = {
 	:verbose => false,
 	:reportOutPath => nil,
+	:mode => "all",
 	:gitOpt => nil,
 	:exceptFiles => "test",
-	:mode => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
+	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
 }
 
@@ -194,6 +196,20 @@ resultCollector = ResultCollectorHash.new()
 
 opt_parser = OptionParser.new do |opts|
 	opts.banner = "Usage: usage ANDROID_HOME"
+
+	opts.on("-m", "--mode=", "Specify report mode all or summary default:#{options[:mode]}") do |mode|
+		mode = mode.tos.downcase
+		case mode
+		when "summary"
+			options[:mode] = "summary"
+		when "all"
+			options[:mode] = "all"
+		end
+	end
+
+	opts.on("-p", "--reportOutPath=", "Specify report output folder if you want to report out as file") do |reportOutPath|
+		options[:reportOutPath] = reportOutPath
+	end
 
 	opts.on("-r", "--reportFormat=", "Specify report format markdown|csv|xml (default:#{options[:reportFormat]})") do |reportFormat|
 		case reportFormat.to_s.downcase
@@ -206,8 +222,8 @@ opt_parser = OptionParser.new do |opts|
 		end
 	end
 
-	opts.on("-p", "--reportOutPath=", "Specify report output folder if you want to report out as file") do |reportOutPath|
-		options[:reportOutPath] = reportOutPath
+	opts.on("-e", "--optEnable=", "Specify option --enable for cppcheck (default:options[:optEnable]") do |optEnable|
+		options[:optEnable] = optEnable
 	end
 
 	opts.on("-j", "--numOfThreads=", "Specify number of threads to analyze (default:#{options[:numOfThreads]})") do |numOfThreads|
@@ -247,11 +263,40 @@ taskMan.finalize()
 _result = resultCollector.getResult()
 _result = _result.sort
 
-results = []
-_result.each do |moduleName, theResult|
-	results << theResult
+
+FileUtil.ensureDirectory(options[:reportOutPath])
+
+# create summary report
+if options[:mode] == "summary" or options[:mode] == "all"
+	results = []
+	_result.each do |moduleName, theResult|
+		theSummary = {}
+		theResult[:results].each do |aResult|
+			if aResult.has_key?("severity") then
+				severity = aResult["severity"]
+				theSummary[severity] = 0 if !theSummary.has_key?(severity)
+				theSummary[severity] = theSummary[severity] + 1
+			end
+		end
+		if !theSummary.empty? then
+			result = {}
+			result["moduleName"] = moduleName
+			result = result.merge(theSummary)
+			results << result
+		end
+	end
+	_reporter = reporter.new( options[:reportOutPath] ? "#{options[:reportOutPath]}/summary" : options[:reportOutPath] )
+	_reporter.report( results )
+	_reporter.close()
 end
 
-_reporter = reporter.new( options[:reportOutPath] )
-_reporter.report( results )
-_reporter.close()
+
+# create per-component report
+if options[:mode] == "all" then
+	_result.each do |moduleName, theResult|
+		results = theResult[:results]
+		_reporter = reporter.new( options[:reportOutPath] ? "#{options[:reportOutPath]}/#{theResult[:name]}" : options[:reportOutPath] )
+		_reporter.report( results )
+		_reporter.close()
+	end
+end
