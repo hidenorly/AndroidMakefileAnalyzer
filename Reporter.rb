@@ -17,8 +17,11 @@
 require_relative 'FileUtil'
 
 class Reporter
+	def ensureCorrespondingExt(path)
+		return path
+	end
 	def setupOutStream(reportOutPath, enableAppend = false)
-		outStream = reportOutPath ? FileUtil.getFileWriter(reportOutPath, enableAppend) : nil
+		outStream = reportOutPath ? FileUtil.getFileWriter( ensureCorrespondingExt(reportOutPath), enableAppend) : nil
 		outStream = outStream ? outStream : STDOUT
 		@outStream = outStream
 	end
@@ -105,6 +108,10 @@ class MarkdownReporter < Reporter
 		end
 	end
 
+	def ensureCorrespondingExt(path)
+		return path.end_with?(".md") ? path : "#{path}.md"
+	end
+
 	def reportFilter(aLine)
 		if aLine.kind_of?(Array) then
 			tmp = ""
@@ -159,6 +166,10 @@ class CsvReporter < Reporter
 		@outStream.puts "" if @outStream
 	end
 
+	def ensureCorrespondingExt(path)
+		return path.end_with?(".csv") || path.end_with?(".txt") ? path : "#{path}.csv"
+	end
+
 	def reportFilter(aLine)
 		if aLine.kind_of?(Array) then
 			tmp = ""
@@ -203,6 +214,11 @@ class XmlReporter < Reporter
 			@outStream.puts "<!-- #{title} --/>"
 			@outStream.puts ""
 		end
+	end
+
+
+	def ensureCorrespondingExt(path)
+		return path.end_with?(".xml") ? path : "#{path}.xml"
 	end
 
 	def reportFilter(aLine)
@@ -261,7 +277,7 @@ class XmlReporter < Reporter
 					if theVal.kind_of?(Enumerable) then
 						_subReport(theVal, indent)
 					else
-						aVal = reportFilter(theVal)
+						aVal = reportFilter(theVal).to_s
 						if aVal && !aVal.empty? then
 							@outStream.puts "#{" "*indent}#{aVal}" if @outStream
 						end
