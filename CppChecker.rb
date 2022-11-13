@@ -187,6 +187,8 @@ options = {
 	:mode => "all",
 	:gitOpt => nil,
 	:exceptFiles => "test",
+	:summarySection => nil,
+	:detailSection => nil,
 	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
 }
@@ -197,13 +199,15 @@ resultCollector = ResultCollectorHash.new()
 opt_parser = OptionParser.new do |opts|
 	opts.banner = "Usage: usage ANDROID_HOME"
 
-	opts.on("-m", "--mode=", "Specify report mode all or summary default:#{options[:mode]}") do |mode|
-		mode = mode.tos.downcase
+	opts.on("-m", "--mode=", "Specify report mode all or summary or detail default:#{options[:mode]}") do |mode|
+		mode = mode.to_s.downcase
 		case mode
 		when "summary"
 			options[:mode] = "summary"
 		when "all"
 			options[:mode] = "all"
+		when "detail"
+			options[:mode] = "detail"
 		end
 	end
 
@@ -224,6 +228,14 @@ opt_parser = OptionParser.new do |opts|
 
 	opts.on("-e", "--optEnable=", "Specify option --enable for cppcheck (default:options[:optEnable]") do |optEnable|
 		options[:optEnable] = optEnable
+	end
+
+	opts.on("", "--summarySection=", "Specify summary sections with | separator (default:#{options[:summarySection]})(\"\" means everything)") do |summarySection|
+		options[:summarySection] = summarySection
+	end
+
+	opts.on("", "--detailSection=", "Specify detail sections with | separator (default:#{options[:detailSection]})(\"\" means everything)") do |detailSection|
+		options[:detailSection] = detailSection
 	end
 
 	opts.on("-j", "--numOfThreads=", "Specify number of threads to analyze (default:#{options[:numOfThreads]})") do |numOfThreads|
@@ -267,9 +279,9 @@ _result = _result.sort
 FileUtil.ensureDirectory(options[:reportOutPath])
 
 # create summary report
-if options[:mode] == "summary" or options[:mode] == "all"
+if options[:mode] == "summary" || options[:mode] == "all"
 	results = []
-	_result.each do |moduleName, theResult|
+	_result.each do |path, theResult|
 		theSummary = {}
 		theResult[:results].each do |aResult|
 			if aResult.has_key?("severity") then
@@ -280,23 +292,24 @@ if options[:mode] == "summary" or options[:mode] == "all"
 		end
 		if !theSummary.empty? then
 			result = {}
-			result["moduleName"] = moduleName
+			result["moduleName"] = theResult[:name]
+			result["path"] = path
 			result = result.merge(theSummary)
 			results << result
 		end
 	end
 	_reporter = reporter.new( options[:reportOutPath] ? "#{options[:reportOutPath]}/summary" : options[:reportOutPath] )
-	_reporter.report( results )
+	_reporter.report( results, options[:summarySection] )
 	_reporter.close()
 end
 
 
 # create per-component report
-if options[:mode] == "all" then
+if options[:mode] == "detail" || options[:mode] == "all" then
 	_result.each do |moduleName, theResult|
 		results = theResult[:results]
 		_reporter = reporter.new( options[:reportOutPath] ? "#{options[:reportOutPath]}/#{theResult[:name]}" : options[:reportOutPath] )
-		_reporter.report( results )
+		_reporter.report( results, options[:detailSection] )
 		_reporter.close()
 	end
 end
