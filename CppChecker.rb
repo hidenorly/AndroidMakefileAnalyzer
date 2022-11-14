@@ -260,7 +260,11 @@ else
 		exit(-1)
 	else
 		componentPaths = RepoUtil.getPathesFromManifest( ARGV[0] )
-		componentPaths = [ ARGV[0] ] if componentPaths.empty?
+		if componentPaths.empty? then
+			ARGV.each do |aPath|
+				componentPaths << aPath if FileTest.directory?(aPath)
+			end
+		end
 	end
 end
 
@@ -293,11 +297,24 @@ if options[:mode] == "summary" || options[:mode] == "all"
 		if !theSummary.empty? then
 			result = {}
 			result["moduleName"] = theResult[:name]
-			result["path"] = path
+			result["path"] = theResult[:path]
 			result = result.merge(theSummary)
 			results << result
 		end
 	end
+
+	results.sort! do |a, b|
+		vecA = []
+		a.each do |key, val|
+			vecA << -val
+		end
+		vecB = []
+		b.each do |key, val|
+			vecB << -val
+		end
+		vecA <=> vecB
+	end
+
 	_reporter = reporter.new( options[:reportOutPath] ? "#{options[:reportOutPath]}/summary" : options[:reportOutPath] )
 	_reporter.report( results, options[:summarySection] )
 	_reporter.close()
