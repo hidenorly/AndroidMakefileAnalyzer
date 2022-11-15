@@ -187,7 +187,7 @@ options = {
 	:mode => "all",
 	:gitOpt => nil,
 	:exceptFiles => "test",
-	:summarySection => nil,
+	:summarySection => "moduleName|path|error|warning|performance|style|information",
 	:detailSection => nil,
 	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
@@ -287,6 +287,7 @@ if options[:mode] == "summary" || options[:mode] == "all"
 	results = []
 	_result.each do |path, theResult|
 		theSummary = {}
+		theResult[:results] = theResult[:results].uniq
 		theResult[:results].each do |aResult|
 			if aResult.has_key?("severity") then
 				severity = aResult["severity"]
@@ -303,14 +304,15 @@ if options[:mode] == "summary" || options[:mode] == "all"
 		end
 	end
 
+	SUMMARY_KEYS = ["error", "warning", "performance", "style", "information"]
 	results.sort! do |a, b|
 		vecA = []
-		a.each do |key, val|
-			vecA << -val
-		end
 		vecB = []
-		b.each do |key, val|
-			vecB << -val
+		SUMMARY_KEYS.each do |key|
+			if a.has_key?(key) && b.has_key?(key) then
+				vecA << -a[key].to_i
+				vecB << -b[key].to_i
+			end
 		end
 		vecA <=> vecB
 	end
@@ -325,6 +327,26 @@ end
 if options[:mode] == "detail" || options[:mode] == "all" then
 	_result.each do |moduleName, theResult|
 		results = theResult[:results]
+
+		#results = results.sort_by { |h| h.values_at("filename", "line") }
+		tmp = {}
+		results.each do |aResult|
+			tmp[ aResult["filename"] ] = [] if !tmp.has_key?( aResult["filename"] )
+			tmp[ aResult["filename"] ] << aResult
+		end
+		tmp.each do | filename, aResult |
+			aResult = aResult.uniq
+			tmp[filename] = aResult.sort do |a, b|
+				a["line"].to_i <=> b["line"].to_i
+			end
+		end
+		results = []
+		tmp.each do | filename, aResults |
+			aResults.each do | aResult |
+				results << aResult
+			end
+		end
+
 		_reporter = reporter.new( options[:reportOutPath] ? "#{options[:reportOutPath]}/#{theResult[:name]}" : options[:reportOutPath] )
 		_reporter.report( results, options[:detailSection] )
 		_reporter.close()
