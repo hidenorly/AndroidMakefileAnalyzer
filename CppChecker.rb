@@ -190,6 +190,7 @@ options = {
 	:summarySection => "moduleName|path|error|warning|performance|style|information",
 	:detailSection => nil,
 	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
+	:pathFilter => nil,
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
 }
 
@@ -238,6 +239,10 @@ opt_parser = OptionParser.new do |opts|
 		options[:detailSection] = detailSection
 	end
 
+	opts.on("-f", "--pathFilter=", "Specify file path filter (default:#{options[:pathFilter]})(\"\" means everything)") do |pathFilter|
+		options[:pathFilter] = pathFilter
+	end
+
 	opts.on("-j", "--numOfThreads=", "Specify number of threads to analyze (default:#{options[:numOfThreads]})") do |numOfThreads|
 		numOfThreads = numOfThreads.to_i
 		options[:numOfThreads] = numOfThreads if numOfThreads
@@ -266,6 +271,14 @@ else
 			end
 		end
 	end
+end
+
+if options[:pathFilter] then
+	_componentPaths = []
+	componentPaths.each do | aComponentPath |
+		_componentPaths << aComponentPath if aComponentPath.include?( options[:pathFilter] ) || aComponentPath.match( options[:pathFilter] )
+	end
+	componentPaths = _componentPaths
 end
 
 
