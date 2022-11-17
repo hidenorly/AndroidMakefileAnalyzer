@@ -140,12 +140,23 @@ class CppChecker
 		return result
 	end
 
-	def execute
+	def _filterFiles(files)
 		results = []
+		files.each do |aFile|
+			results << aFile if aFile.end_with?(".cpp") || aFile.end_with?(".c") || aFile.end_with?(".cc") || aFile.end_with?(".h") || aFile.end_with?(".hpp") || aFile.end_with?(".cxx") || aFile.end_with?(".")
+		end
+		return results
+	end
+
+
+	def execute(targetFiles=["."])
+		results = []
+
+		targetFiles = _filterFiles(targetFiles)
 
 		exec_cmd = "#{DEF_CPPCHECK} --quiet --template=\"#{DEF_CPPCHECK_TEMPLATE}\""
 		exec_cmd = exec_cmd + " --enable=#{@optEnable}" if @optEnable && !@optEnable.empty?
-		exec_cmd = exec_cmd + " ."
+		exec_cmd = exec_cmd + " #{targetFiles.join(" ")}"
 
 		resultLines = ExecUtil.getExecResultEachLineWithTimeout(exec_cmd, @targetPath, @timeOut, true, true)
 
@@ -155,6 +166,24 @@ class CppChecker
 		end
 
 		return results
+	end
+end
+
+
+class GitUtil
+	def self.isGitDirectory(gitPath)
+		return File.directory?("#{gitPath}/.git")
+	end
+
+	def self.getHeadCommitId(gitPath)
+		exec_cmd = "git show --pretty=\"%h\" HEAD"
+		results = ExecUtil.getExecResultEachLine(exec_cmd, gitPath, false, true)
+		return !results.empty? ? results[0] : nil
+	end
+
+	def self.getFilesWithGitOpts(gitPath, gitOpt = "")
+		exec_cmd = "git log --name-only --pretty=\"\" #{gitOpt ? gitOpt : ""} | sort -u"
+		return ExecUtil.getExecResultEachLine(exec_cmd, gitPath, false, true, true)
 	end
 end
 
@@ -172,7 +201,7 @@ class CppCheckExecutor < TaskAsync
 		results = {}
 		results[:name]= FileUtil.getFilenameFromPath(@path)
 		results[:path]= @path.slice( AndroidUtil.getAndroidRootPath(@path).to_s.length, @path.length )
-		results[:results]=@cppCheck.execute()
+		results[:results]=@cppCheck.execute( GitUtil.isGitDirectory(@path) ? @options[:gitOpt] ? GitUtil.getFilesWithGitOpts( @path, @options[:gitOpt] ) : ["."] : ["."] )
 		@resultCollector.onResult(@path, results) if @resultCollector && !results[:results].empty?
 		_doneTask()
 	end
@@ -225,6 +254,10 @@ opt_parser = OptionParser.new do |opts|
 		when "xml"
 			reporter = XmlReporter
 		end
+	end
+
+	opts.on("-g", "--gitOpt=", "Specify option for git (default:options[:gitOpt]") do |gitOpt|
+		options[:gitOpt] = gitOpt
 	end
 
 	opts.on("-e", "--optEnable=", "Specify option --enable for cppcheck (default:options[:optEnable]") do |optEnable|
