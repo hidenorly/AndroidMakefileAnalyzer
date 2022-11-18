@@ -41,6 +41,10 @@ class Reporter
 		@outStream.puts title if @outStream
 	end
 
+	def println(msg = "")
+		@outStream.puts msg if @outStream
+	end
+
 	def _getMaxLengthData(data)
 		result = !data.empty? ? data[0] : {}
 

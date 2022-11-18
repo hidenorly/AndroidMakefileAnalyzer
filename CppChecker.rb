@@ -135,7 +135,7 @@ class CppChecker
 			result["id"] = _result[3]
 			_result.shift(4)
 			_result = _result.join("],[")
-			result["message"] = _result
+			result["message"] = _result.slice(0, _result.length-1)
 		end
 		return result
 	end
@@ -143,7 +143,7 @@ class CppChecker
 	def _filterFiles(files)
 		results = []
 		files.each do |aFile|
-			results << aFile if aFile.end_with?(".cpp") || aFile.end_with?(".c") || aFile.end_with?(".cc") || aFile.end_with?(".h") || aFile.end_with?(".hpp") || aFile.end_with?(".cxx") || aFile.end_with?(".")
+			results << aFile if ( aFile.end_with?(".cpp") || aFile.end_with?(".c") || aFile.end_with?(".cc") || aFile.end_with?(".h") || aFile.end_with?(".hpp") || aFile.end_with?(".cxx") || aFile.end_with?(".") ) && File.exist?(aFile)
 		end
 		return results
 	end
@@ -185,6 +185,38 @@ class GitUtil
 		exec_cmd = "git log --name-only --pretty=\"\" #{gitOpt ? gitOpt : ""} | sort -u"
 		return ExecUtil.getExecResultEachLine(exec_cmd, gitPath, false, true, true)
 	end
+
+	def self._getValue(aLine, key)
+		result = nil
+		aLine = aLine.to_s
+		pos = aLine.index(key)
+		if pos then
+			result = aLine.slice( pos+key.length, aLine.length )
+			result.strip!
+		end
+		return result
+	end
+
+	def self._getValueFromLines(lines, key)
+		lines.each do |aLine|
+			result = _getValue(aLine, key)
+			return result if result
+		end
+		return ""
+	end
+
+	def self.gitBlame(gitPath, filename, line)
+		results = {}
+		exec_cmd = "git blame -p #{filename} -L #{line},#{line}"
+		result = ExecUtil.getExecResultEachLine(exec_cmd, gitPath, false, true, true)
+		if !result.empty? then
+			results[:commitId] = result[0].split(" ")[0]
+			results[:author] = _getValueFromLines(result, "author")
+			results[:authorMail] = _getValueFromLines(result, "author-mail")
+			results[:theLine] = result.last.to_s.strip
+		end
+		return results
+	end
 end
 
 
@@ -197,11 +229,29 @@ class CppCheckExecutor < TaskAsync
 		@cppCheck = CppChecker.new( path, options[:optEnable] )
 	end
 
+	def enhanceResult(results)
+		_results = []
+
+		results.each do | aResult |
+			theResult = {}
+			theResult = GitUtil.gitBlame( @path, aResult["filename"], aResult["line"] ) if !aResult["filename"].empty? && !aResult["line"].empty?
+			if theResult.empty? then
+				_results << aResult
+			else 
+				_results << aResult.merge( theResult )
+			end
+		end
+
+		return _results
+	end
+
 	def execute
 		results = {}
-		results[:name]= FileUtil.getFilenameFromPath(@path)
-		results[:path]= @path.slice( AndroidUtil.getAndroidRootPath(@path).to_s.length, @path.length )
-		results[:results]=@cppCheck.execute( GitUtil.isGitDirectory(@path) ? @options[:gitOpt] ? GitUtil.getFilesWithGitOpts( @path, @options[:gitOpt] ) : ["."] : ["."] )
+		isGitDirectory = GitUtil.isGitDirectory(@path)
+		results[:name] = FileUtil.getFilenameFromPath(@path)
+		results[:path] = @path.slice( AndroidUtil.getAndroidRootPath(@path).to_s.length, @path.length )
+		results[:results] = @cppCheck.execute( isGitDirectory ? @options[:gitOpt] ? GitUtil.getFilesWithGitOpts( @path, @options[:gitOpt] ) : ["."] : ["."] )
+		results[:results] = enhanceResult( results[:results] ) if isGitDirectory
 		@resultCollector.onResult(@path, results) if @resultCollector && !results[:results].empty?
 		_doneTask()
 	end
