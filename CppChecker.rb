@@ -143,7 +143,7 @@ class CppChecker
 	def _filterFiles(files)
 		results = []
 		files.each do |aFile|
-			results << aFile if ( aFile.end_with?(".cpp") || aFile.end_with?(".c") || aFile.end_with?(".cc") || aFile.end_with?(".h") || aFile.end_with?(".hpp") || aFile.end_with?(".cxx") || aFile.end_with?(".") ) && File.exist?(aFile)
+			results << aFile if aFile.end_with?(".cpp") || aFile.end_with?(".c") || aFile.end_with?(".cc") || aFile.end_with?(".h") || aFile.end_with?(".hpp") || aFile.end_with?(".cxx") || aFile.end_with?(".")
 		end
 		return results
 	end
@@ -267,6 +267,7 @@ options = {
 	:gitOpt => nil,
 	:exceptFiles => "test",
 	:summarySection => "moduleName|path|error|warning|performance|style|information",
+	:enableLinkInSummary => false,
 	:detailSection => nil,
 	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
 	:pathFilter => nil,
@@ -329,6 +330,10 @@ opt_parser = OptionParser.new do |opts|
 	opts.on("-j", "--numOfThreads=", "Specify number of threads to analyze (default:#{options[:numOfThreads]})") do |numOfThreads|
 		numOfThreads = numOfThreads.to_i
 		options[:numOfThreads] = numOfThreads if numOfThreads
+	end
+
+	opts.on("-l", "--enableLinkInSummary", "Enable link in summary.md to each detail report.md. Note that this is only available in markdown.") do
+		options[:enableLinkInSummary] = true
 	end
 
 	opts.on("", "--verbose", "Enable verbose status output") do
@@ -411,6 +416,12 @@ if options[:mode] == "summary" || options[:mode] == "all"
 			end
 		end
 		vecA <=> vecB
+	end
+
+	if options[:enableLinkInSummary] && reporter == MarkdownReporter then
+		results.each do |aResult|
+			aResult["moduleName"] = "[#{aResult["moduleName"]}](#{aResult["moduleName"]}.md)"
+		end
 	end
 
 	_reporter = reporter.new( options[:reportOutPath] ? "#{options[:reportOutPath]}/summary" : options[:reportOutPath] )
