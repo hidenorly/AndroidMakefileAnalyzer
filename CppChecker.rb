@@ -268,6 +268,7 @@ options = {
 	:exceptFiles => "test",
 	:summarySection => "moduleName|path|error|warning|performance|style|information",
 	:enableLinkInSummary => false,
+	:filterAuthorMatch => nil,
 	:detailSection => nil,
 	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
 	:pathFilter => nil,
@@ -307,11 +308,11 @@ opt_parser = OptionParser.new do |opts|
 		end
 	end
 
-	opts.on("-g", "--gitOpt=", "Specify option for git (default:options[:gitOpt]") do |gitOpt|
+	opts.on("-g", "--gitOpt=", "Specify option for git (default:#{options[:gitOpt]}") do |gitOpt|
 		options[:gitOpt] = gitOpt
 	end
 
-	opts.on("-e", "--optEnable=", "Specify option --enable for cppcheck (default:options[:optEnable]") do |optEnable|
+	opts.on("-e", "--optEnable=", "Specify option --enable for cppcheck (default:#{options[:optEnable]}") do |optEnable|
 		options[:optEnable] = optEnable
 	end
 
@@ -325,6 +326,10 @@ opt_parser = OptionParser.new do |opts|
 
 	opts.on("-f", "--pathFilter=", "Specify file path filter (default:#{options[:pathFilter]})(\"\" means everything)") do |pathFilter|
 		options[:pathFilter] = pathFilter
+	end
+
+	opts.on("-a", "--filterAuthorMatch=", "Specify if match-only-filter for git blame result (default:#{options[:filterAuthorMatch]}") do |filterAuthorMatch|
+		options[:filterAuthorMatch] = filterAuthorMatch
 	end
 
 	opts.on("-j", "--numOfThreads=", "Specify number of threads to analyze (default:#{options[:numOfThreads]})") do |numOfThreads|
@@ -380,6 +385,21 @@ taskMan.finalize()
 _result = resultCollector.getResult()
 _result = _result.sort
 
+filterAuthorMatch = options[:filterAuthorMatch]
+if filterAuthorMatch then
+	zeroResultPaths = []
+	_result.each do |path, theResult|
+		_theResults = []
+		theResult[:results].each do |aResult|
+			_theResults << aResult if ( aResult.has_key?(:author) && aResult[:author].match(filterAuthorMatch) ) || ( aResult.has_key?(:authorMail) && aResult[:authorMail].match(filterAuthorMatch) )
+		end
+		theResult[:results] = _theResults
+		zeroResultPaths << path if theResult[:results].empty?
+	end
+	zeroResultPaths.each do |aPath|
+		_result.delete(aPath)
+	end
+end
 
 FileUtil.ensureDirectory(options[:reportOutPath])
 
