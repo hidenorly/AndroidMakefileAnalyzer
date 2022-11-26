@@ -272,6 +272,7 @@ options = {
 	:detailSection => nil,
 	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
 	:pathFilter => nil,
+	:surpressNonIssue => false,
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
 }
 
@@ -332,6 +333,10 @@ opt_parser = OptionParser.new do |opts|
 		options[:filterAuthorMatch] = filterAuthorMatch
 	end
 
+	opts.on("-s", "--surpressNonIssue", "Specify if surpress non issues e.g. toomanyconfig (default:#{options[:surpressNonIssue]}") do
+		options[:surpressNonIssue] = true
+	end
+
 	opts.on("-j", "--numOfThreads=", "Specify number of threads to analyze (default:#{options[:numOfThreads]})") do |numOfThreads|
 		numOfThreads = numOfThreads.to_i
 		options[:numOfThreads] = numOfThreads if numOfThreads
@@ -385,13 +390,19 @@ taskMan.finalize()
 _result = resultCollector.getResult()
 _result = _result.sort
 
+# filter author match
 filterAuthorMatch = options[:filterAuthorMatch]
-if filterAuthorMatch then
+surpressNonIssue = options[:surpressNonIssue]
+if filterAuthorMatch || surpressNonIssue then
 	zeroResultPaths = []
 	_result.each do |path, theResult|
 		_theResults = []
 		theResult[:results].each do |aResult|
-			_theResults << aResult if ( aResult.has_key?(:author) && aResult[:author].match(filterAuthorMatch) ) || ( aResult.has_key?(:authorMail) && aResult[:authorMail].match(filterAuthorMatch) )
+			validResult = true
+			validResult = validResult & ( aResult.has_key?(:author) && aResult[:author].match?(filterAuthorMatch) ) || ( aResult.has_key?(:authorMail) && aResult[:authorMail].match?(filterAuthorMatch) ) if filterAuthorMatch
+			validResult = validResult & ( aResult.has_key?("line") && aResult["line"]!= "0" ) if surpressNonIssue
+
+			_theResults << aResult if validResult
 		end
 		theResult[:results] = _theResults
 		zeroResultPaths << path if theResult[:results].empty?
@@ -401,6 +412,8 @@ if filterAuthorMatch then
 	end
 end
 
+
+# ensure report out path
 FileUtil.ensureDirectory(options[:reportOutPath])
 
 # create summary report
