@@ -400,7 +400,7 @@ if filterAuthorMatch || surpressNonIssue then
 		theResult[:results].each do |aResult|
 			validResult = true
 			validResult = validResult & ( aResult.has_key?(:author) && aResult[:author].match?(filterAuthorMatch) ) || ( aResult.has_key?(:authorMail) && aResult[:authorMail].match?(filterAuthorMatch) ) if filterAuthorMatch
-			validResult = validResult & ( aResult.has_key?("line") && aResult["line"]!= "0" ) if surpressNonIssue
+			validResult = validResult & ( aResult.has_key?("line") && aResult["line"]!= "0" ) & (aResult.has_key?("id") && aResult["id"]!= "syntaxError") if surpressNonIssue
 
 			_theResults << aResult if validResult
 		end
@@ -483,6 +483,7 @@ if options[:mode] == "detail" || options[:mode] == "all" then
 		results = []
 		tmp.each do | filename, aResults |
 			aResults.each do | aResult |
+				aResult[:theLine] = "```#{aResult[:theLine]}```" if reporter == MarkdownReporter && aResult.has_key?(:theLine)
 				results << aResult
 			end
 		end
