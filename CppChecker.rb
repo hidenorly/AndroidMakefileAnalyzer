@@ -148,13 +148,12 @@ class CppChecker
 		return results
 	end
 
-
 	def execute(targetFiles=["."])
 		results = []
 
 		targetFiles = _filterFiles(targetFiles)
 
-		exec_cmd = "#{DEF_CPPCHECK} --quiet --template=\"#{DEF_CPPCHECK_TEMPLATE}\""
+		exec_cmd = "#{DEF_CPPCHECK} --quiet -j 2 --template=\"#{DEF_CPPCHECK_TEMPLATE}\""
 		exec_cmd = exec_cmd + " --enable=#{@optEnable}" if @optEnable && !@optEnable.empty?
 		exec_cmd = exec_cmd + " #{targetFiles.join(" ")}"
 
@@ -226,7 +225,7 @@ class CppCheckExecutor < TaskAsync
 		@resultCollector = resultCollector
 		@path = path.to_s
 		@options = options
-		@cppCheck = CppChecker.new( path, options[:optEnable] )
+		@cppCheck = CppChecker.new( path, options[:optEnable], options[:execTimeOut].to_i )
 	end
 
 	def enhanceResult(results)
@@ -273,6 +272,7 @@ options = {
 	:optEnable => nil, # subset of "warning,style,performance,portability,information,unusedFunction,missingInclude" or "all"
 	:pathFilter => nil,
 	:surpressNonIssue => false,
+	:execTimeOut => 5*60,
 	:numOfThreads => TaskManagerAsync.getNumberOfProcessor()
 }
 
@@ -313,7 +313,7 @@ opt_parser = OptionParser.new do |opts|
 		options[:gitOpt] = gitOpt
 	end
 
-	opts.on("-e", "--optEnable=", "Specify option --enable for cppcheck (default:#{options[:optEnable]}") do |optEnable|
+	opts.on("-e", "--optEnable=", "Specify option --enable for cppcheck (default:#{options[:optEnable]})") do |optEnable|
 		options[:optEnable] = optEnable
 	end
 
@@ -329,12 +329,17 @@ opt_parser = OptionParser.new do |opts|
 		options[:pathFilter] = pathFilter
 	end
 
-	opts.on("-a", "--filterAuthorMatch=", "Specify if match-only-filter for git blame result (default:#{options[:filterAuthorMatch]}") do |filterAuthorMatch|
+	opts.on("-a", "--filterAuthorMatch=", "Specify if match-only-filter for git blame result (default:#{options[:filterAuthorMatch]})") do |filterAuthorMatch|
 		options[:filterAuthorMatch] = filterAuthorMatch
 	end
 
-	opts.on("-s", "--surpressNonIssue", "Specify if surpress non issues e.g. toomanyconfig (default:#{options[:surpressNonIssue]}") do
+	opts.on("-s", "--surpressNonIssue", "Specify if surpress non issues e.g. syntaxError (default:#{options[:surpressNonIssue]})") do
 		options[:surpressNonIssue] = true
+	end
+
+	opts.on("-t", "--execTimeout=", "Specify time out (sec) of cppcheck execution (default:#{options[:execTimeOut]})") do |execTimeOut|
+		execTimeOut = execTimeOut.to_i
+		options[:execTimeOut] = execTimeOut if execTimeOut
 	end
 
 	opts.on("-j", "--numOfThreads=", "Specify number of threads to analyze (default:#{options[:numOfThreads]})") do |numOfThreads|
@@ -399,8 +404,13 @@ if filterAuthorMatch || surpressNonIssue then
 		_theResults = []
 		theResult[:results].each do |aResult|
 			validResult = true
-			validResult = validResult & ( aResult.has_key?(:author) && aResult[:author].match?(filterAuthorMatch) ) || ( aResult.has_key?(:authorMail) && aResult[:authorMail].match?(filterAuthorMatch) ) if filterAuthorMatch
-			validResult = validResult & ( aResult.has_key?("line") && aResult["line"]!= "0" ) & (aResult.has_key?("id") && aResult["id"]!= "syntaxError") if surpressNonIssue
+			validResult = validResult & (
+				( !aResult.has_key?(:author) 		|| aResult[:author].match?(filterAuthorMatch) ) |
+				( !aResult.has_key?(:authorMail) 	|| aResult[:authorMail].match?(filterAuthorMatch) ) ) if filterAuthorMatch
+			validResult = validResult & (
+				( !aResult.has_key?("line") 		|| aResult["line"]!= "0" ) &
+				( !aResult.has_key?("id")			|| aResult["id"]!= "syntaxError" ) &
+				( !aResult.has_key?("severity") 	|| aResult["severity"]!="information" ) ) if surpressNonIssue
 
 			_theResults << aResult if validResult
 		end
