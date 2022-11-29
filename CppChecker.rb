@@ -117,10 +117,11 @@ class CppChecker
 	DEF_CPPCHECK_TEMPLATE = "[{file}],[{line}],[{severity}],[{id}],[{message}]"
 	DEF_EXEC_TIMEOUT = 60*3
 
-	def initialize(targetPath, optEnable, timeOut=DEF_EXEC_TIMEOUT)
+	def initialize(targetPath, optEnable, timeOut=DEF_EXEC_TIMEOUT, maxThreads = 1)
 		@targetPath = File.expand_path(targetPath)
 		@optEnable = optEnable
 		@timeOut = timeOut
+		@maxThreads = maxThreads
 	end
 
 	def _parseResult(aLine)
@@ -148,20 +149,31 @@ class CppChecker
 		return results
 	end
 
+	def getConcurrentNum(numOfFiles)
+		result = 0
+		numOfFiles = numOfFiles.to_i
+		result = ( Math.log(numOfFiles) + 0.9 ).to_i if numOfFiles!=0
+		result = 2 if result == 0
+		result = [result, @maxThreads].min
+		return result
+	end
+
 	def execute(targetFiles=["."])
 		results = []
 
 		targetFiles = _filterFiles(targetFiles)
 
-		exec_cmd = "#{DEF_CPPCHECK} --quiet -j 2 --template=\"#{DEF_CPPCHECK_TEMPLATE}\""
-		exec_cmd = exec_cmd + " --enable=#{@optEnable}" if @optEnable && !@optEnable.empty?
-		exec_cmd = exec_cmd + " #{targetFiles.join(" ")}"
+		if !targetFiles.empty? then
+			exec_cmd = "#{DEF_CPPCHECK} --quiet -j #{getConcurrentNum(targetFiles.length)} --template=\"#{DEF_CPPCHECK_TEMPLATE}\""
+			exec_cmd = exec_cmd + " --enable=#{@optEnable}" if @optEnable && !@optEnable.empty?
+			exec_cmd = exec_cmd + " #{targetFiles.join(" ")}"
 
-		resultLines = ExecUtil.getExecResultEachLineWithTimeout(exec_cmd, @targetPath, @timeOut, true, true)
+			resultLines = ExecUtil.getExecResultEachLineWithTimeout(exec_cmd, @targetPath, @timeOut, true, true)
 
-		resultLines.each do |aLine|
-			_result = _parseResult(aLine)
-			results << _result if !_result.empty?
+			resultLines.each do |aLine|
+				_result = _parseResult(aLine)
+				results << _result if !_result.empty?
+			end
 		end
 
 		return results
@@ -225,7 +237,7 @@ class CppCheckExecutor < TaskAsync
 		@resultCollector = resultCollector
 		@path = path.to_s
 		@options = options
-		@cppCheck = CppChecker.new( path, options[:optEnable], options[:execTimeOut].to_i )
+		@cppCheck = CppChecker.new( path, options[:optEnable], options[:execTimeOut].to_i, options[:numOfThreads].to_i )
 	end
 
 	def enhanceResult(results)
@@ -233,7 +245,7 @@ class CppCheckExecutor < TaskAsync
 
 		results.each do | aResult |
 			theResult = {}
-			theResult = GitUtil.gitBlame( @path, aResult["filename"], aResult["line"] ) if !aResult["filename"].empty? && !aResult["line"].empty?
+			theResult = GitUtil.gitBlame( @path, aResult["filename"], aResult["line"] ) if !aResult["filename"].empty? && aResult["filename"]!="nofile" && !aResult["line"].empty?
 			if theResult.empty? then
 				_results << aResult
 			else 
@@ -408,9 +420,9 @@ if filterAuthorMatch || surpressNonIssue then
 				( !aResult.has_key?(:author) 		|| aResult[:author].match?(filterAuthorMatch) ) |
 				( !aResult.has_key?(:authorMail) 	|| aResult[:authorMail].match?(filterAuthorMatch) ) ) if filterAuthorMatch
 			validResult = validResult & (
-				( !aResult.has_key?("line") 		|| aResult["line"]!= "0" ) &
-				( !aResult.has_key?("id")			|| aResult["id"]!= "syntaxError" ) &
-				( !aResult.has_key?("severity") 	|| aResult["severity"]!="information" ) ) if surpressNonIssue
+				( !aResult.has_key?("line") 		|| aResult["line"] != "0" ) &
+				( !aResult.has_key?("id")			|| ( aResult["id"] != "syntaxError" && aResult["id"] != "unknownMacro" ) ) &
+				( !aResult.has_key?("severity") 	|| aResult["severity"] != "information" ) ) if surpressNonIssue
 
 			_theResults << aResult if validResult
 		end
