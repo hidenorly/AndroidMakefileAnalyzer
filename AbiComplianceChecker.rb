@@ -19,7 +19,8 @@ require 'optparse'
 require 'rexml/document'
 require_relative 'FileUtil'
 require_relative 'ExecUtil'
-require_relative 'TaskManager.rb'
+require_relative 'TaskManager'
+require_relative 'Reporter'
 require 'shellwords'
 
 class XmlPerLibReporterParser
@@ -162,108 +163,6 @@ class AbiComplianceCheckerExecutor < TaskAsync
 		_doneTask()
 	end
 
-end
-
-class Reporter
-	def self.convertArray(data, key)
-		result = []
-		data.each do |aData|
-			result << {key=>aData}
-		end
-		return result
-	end
-
-	def self.titleOut(title)
-		puts title
-	end
-
-	def self.report(data)
-		if data.length then
-			keys = data[0]
-			if keys.kind_of?(Hash) then
-				_conv(keys, true, false, true)
-			end
-
-			data.each do |aData|
-				_conv(aData)
-			end
-		end
-	end
-
-	def self._conv(aData, keyOutput=false, valOutput=true, firstLine=false)
-		puts aData
-	end
-end
-
-class MarkdownReporter < Reporter
-	def self.titleOut(title)
-		puts "\# #{title}"
-		puts ""
-	end
-
-	def self.reportFilter(aLine)
-		if aLine.is_a?(String) then
-			aLine = "[#{FileUtil.getFilenameFromPath(aLine)}](#{aLine})" if aLine.start_with?("http://")
-		end
-
-		return aLine
-	end
-
-	def self._conv(aData, keyOutput=false, valOutput=true, firstLine=false)
-		separator = "|"
-		aLine = separator
-		count = 0
-		if aData.kind_of?(Enumerable) then
-			if aData.kind_of?(Hash) then
-				aData.each do |aKey,theVal|
-					aLine = "#{aLine} #{aKey} #{separator}" if keyOutput
-					aLine = "#{aLine} #{reportFilter(theVal)} #{separator}" if valOutput
-					count = count + 1
-				end
-			elsif aData.kind_of?(Array) then
-				aData.each do |theVal|
-					aLine = "#{aLine} #{reportFilter(theVal)} #{separator}" if valOutput
-					count = count + 1
-				end
-			end
-			puts aLine
-			if firstLine && count then
-				aLine = "|"
-				for i in 1..count do
-					aLine = "#{aLine} :--- |"
-				end
-				puts aLine
-			end
-		else
-			puts "#{separator} #{reportFilter(aData)} #{separator}"
-		end
-	end
-end
-
-
-class CsvReporter < Reporter
-	def self.titleOut(title)
-		puts ""
-	end
-
-	def self._conv(aData, keyOutput=false, valOutput=true, firstLine=false)
-		aLine = ""
-		if aData.kind_of?(Enumerable) then
-			if aData.kind_of?(Hash) then
-				aData.each do |aKey,theVal|
-					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{aKey}" if keyOutput
-					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{theVal}" if valOutput
-				end
-			elsif aData.kind_of?(Array) then
-				aData.each do |theVal|
-					aLine = "#{aLine!="" ? "#{aLine}," : ""}#{theVal}" if valOutput
-				end
-			end
-			puts aLine
-		else
-			puts "#{aData}"
-		end
-	end
 end
 
 
