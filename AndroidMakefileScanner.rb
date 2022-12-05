@@ -614,7 +614,7 @@ class AndroidMkParser < AndroidMakefileParser
 							if @enableApkScan && value.include?(".apk") then
 								@currentResult.apkName = value
 								@isApk = true
-							elsif @enableNativeScan && value.include?(".so") then
+							elsif @enableNativeScan && ( value.include?(".so") || value.include?(".a") ) then
 								@currentResult.libName = value
 								@isNativeLib = true
 							elsif @enableJarScan && value.include?(".jar") then
@@ -674,7 +674,7 @@ class AndroidMkParser < AndroidMakefileParser
 		@env = {}
 		@env["call my-dir"] = FileUtil.getDirectoryFromPath(@makefilePath)
 		makefileBody = FileUtil.readFileAsArray(makefilePath)
-		targetIdentifiers = DEF_NATIVE_LIB_IDENTIFIER | DEF_APK_IDENTIFIER | DEF_JAR_IDENTIFIER # APEX by Android.mk?
+		targetIdentifiers = DEF_NATIVE_LIB_IDENTIFIER | DEF_APK_IDENTIFIER | DEF_JAR_IDENTIFIER # TODO:APEX by Android.mk?
 		targetIdentifiers.each do | aCondition |
 			result = makefileBody.grep(aCondition)
 			if !result.empty? then
@@ -726,7 +726,6 @@ class AndroidBpParser < AndroidMakefileParser
 		"android_app_import",
 		"runtime_resource_overlay"
 	]
-	DEF_APK_NAME_IDENTIFIER = "name"
 	DEF_APK_DEFAULTS_IDENTIFIER = "defaults" # [], makefile base
 	DEF_APK_DEPENDENCIES_IDENTIFIER = [
 		"static_libs" # []
@@ -748,10 +747,8 @@ class AndroidBpParser < AndroidMakefileParser
 		"java_sdk_library",
 		"android_library"
 	]
-	DEF_JAR_NAME_IDENTIFIER = "name"
 
 	DEF_APEX_IDENTIFIER = ["module_apex"]
-	DEF_APEX_NAME_IDENTIFIER = "name"
 
 
 	def ensureJson(body)
@@ -850,10 +847,13 @@ class AndroidBpParser < AndroidMakefileParser
 				if !theBp.empty? then
 					theBp = ensureDefaults(body, theBp)
 
-					@currentResult.builtOuts << theBp[DEF_NAME_IDENTIFIER] if theBp.has_key?(DEF_NAME_IDENTIFIER)
+					moduleName = nil
+					moduleName = theBp[DEF_NAME_IDENTIFIER] if theBp.has_key?(DEF_NAME_IDENTIFIER)
+					@currentResult.builtOuts << moduleName if moduleName
 
 					if @enableNativeScan && DEF_NATIVE_LIB_IDENTIFIER.include?(aCondition) then
 						@isNativeLib = true
+						@currentResult.libName = moduleName if moduleName
 						DEF_INCLUDE_DIRS.each do |anIncludeIdentifier|
 							if theBp.has_key?(anIncludeIdentifier) then
 								theBp[anIncludeIdentifier].to_a.each do |anInclude|
@@ -877,16 +877,13 @@ class AndroidBpParser < AndroidMakefileParser
 						end
 					elsif @enableApkScan && DEF_APK_IDENTIFIER.include?(aCondition) then
 						@isApk = true
+						@currentResult.apkName = moduleName if moduleName
 						if theBp.has_key?(DEF_DEX_PREOPT_IDENTIFIER) then
 							val = theBp[DEF_DEX_PREOPT_IDENTIFIER]
 							if val.has_key?(DEF_DEX_PREOPT_ENABLED_IDENTIFIER) then
 								enabled = val[DEF_DEX_PREOPT_ENABLED_IDENTIFIER].to_s
 								@currentResult.dexPreOpt = enabled if enabled
 							end
-						end
-						if theBp.has_key?(DEF_APK_NAME_IDENTIFIER) then
-							val = theBp[DEF_APK_NAME_IDENTIFIER].to_s
-							@currentResult.apkName = val if val
 						end
 						if theBp.has_key?(DEF_CERTIFICATE_IDENTIFIER) then
 							val = theBp[DEF_CERTIFICATE_IDENTIFIER].to_s
@@ -905,10 +902,7 @@ class AndroidBpParser < AndroidMakefileParser
 						end
 					elsif @enableJarScan && DEF_JAR_IDENTIFIER.include?(aCondition) then
 						@isJar = true
-						if theBp.has_key?(DEF_JAR_NAME_IDENTIFIER) then
-							val = theBp[DEF_JAR_NAME_IDENTIFIER].to_s
-							@currentResult.jarName = val if val
-						end
+						@currentResult.jarName = moduleName if moduleName
 						if theBp.has_key?(DEF_CERTIFICATE_IDENTIFIER) then
 							val = theBp[DEF_CERTIFICATE_IDENTIFIER].to_s
 							@currentResult.certificate = val if val
@@ -923,10 +917,7 @@ class AndroidBpParser < AndroidMakefileParser
 						end
 					elsif @enableApexScan && DEF_APEX_IDENTIFIER.include?(aCondition) then
 						@isApex = true
-						if theBp.has_key?(DEF_APEX_NAME_IDENTIFIER) then
-							val = theBp[DEF_APEX_NAME_IDENTIFIER].to_s
-							@currentResult.apexName = val if val
-						end
+						@currentResult.apexName = moduleName if moduleName
 						if theBp.has_key?(DEF_CERTIFICATE_IDENTIFIER) then
 							val = theBp[DEF_CERTIFICATE_IDENTIFIER].to_s
 							@currentResult.certificate = val if val
@@ -1226,7 +1217,10 @@ result.each do |aResult|
 		aBuiltOut = aBuiltOut.to_s
 		filename = FileUtil.getFilenameFromPath(aBuiltOut)
 		aResult["libs"] << aBuiltOut if aBuiltOut.end_with?(".so") || filename.start_with?("lib")
-		aResult["apexPath"] << aBuiltOut if aBuiltOut.end_with?(".apex")
+		if !aBuiltOut.end_with?(".apk") && ( aBuiltOut.end_with?(".apex") || filename.include?("apex.") ) then
+			aResult["apexPath"] << aBuiltOut
+			aResult["apexName"] = filename if !aResult.has_key?("apexName")
+		end
 		aResult["jarPath"] << aBuiltOut if aBuiltOut.end_with?(".jar") || !filename.include?(".")
 	end
 	aResult["libs"].uniq!
