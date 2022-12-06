@@ -24,6 +24,18 @@ require_relative 'StrUtil'
 require_relative 'TaskManager'
 require_relative 'Reporter'
 
+class ArrayUtil
+	def self.includes?(theArray, vals)
+		result = false
+
+		vals.to_a.each do | aVal |
+			result = theArray.include?( aVal )
+			break if result
+		end
+
+		return result
+	end
+end
 
 class RepoUtil
 	DEF_MANIFESTFILE = "manifest.xml"
@@ -96,13 +108,7 @@ class AndroidUtil
 	def self.excludesKnownIntermediatesBuiltOuts(builtOuts)
 		results = []
 		builtOuts.each do | aBuiltOut |
-			isExclude = false
-			DEF_INTERMEDIATE_BUILTOUTS.each do |anExclusion|
-				if aBuiltOut.include?(anExclusion) then
-					isExclude = true
-					break
-				end
-			end
+			isExclude = ArrayUtil.includes?(aBuiltOut, DEF_INTERMEDIATE_BUILTOUTS)
 			results << aBuiltOut if !isExclude
 		end
 		return results
@@ -610,11 +616,11 @@ class AndroidMkParser < AndroidMakefileParser
 					when DEF_PREBUILT_NAME_IDENTIFIER
 						values = value.split(" ")
 						values.each do | value |
-							@currentResult.builtOuts << value if value.include?(".apk") || value.include?(".apex") || value.include?(".so") || value.include?(".jar")
+							@currentResult.builtOuts << value if ArrayUtil.includes?( value, AndroidUtil::DEF_BUILTS_OUT_EXTS )
 							if @enableApkScan && value.include?(".apk") then
 								@currentResult.apkName = value
 								@isApk = true
-							elsif @enableNativeScan && ( value.include?(".so") || value.include?(".a") ) then
+							elsif @enableNativeScan && ArrayUtil.includes?( value, [".so", ".a"] ) then
 								@currentResult.libName = value
 								@isNativeLib = true
 							elsif @enableJarScan && value.include?(".jar") then
