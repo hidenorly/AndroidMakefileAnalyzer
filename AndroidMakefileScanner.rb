@@ -562,6 +562,7 @@ class AndroidMkParser < AndroidMakefileParser
 
 		makefileBody.each do |aLine|
 			aLine.strip!
+			next if aLine.start_with?('''#''') #skip comment
 			targetIdentifiers.each do |aCondition|
 				if aLine.match(aCondition) then
 					@currentResult.builtOuts.each do |aBuiltOut|
@@ -732,7 +733,6 @@ class AndroidBpParser < AndroidMakefileParser
 		"android_app_import",
 		"runtime_resource_overlay"
 	]
-	DEF_APK_DEFAULTS_IDENTIFIER = "defaults" # [], makefile base
 	DEF_APK_DEPENDENCIES_IDENTIFIER = [
 		"static_libs" # []
 	]
