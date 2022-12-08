@@ -777,24 +777,33 @@ class AndroidBpParser < AndroidMakefileParser
 		result = {}
 
 		DEF_DEFAULTS_IDENTIFIERS.each do |aCondition|
-			pos = body.index(aCondition)
-			if pos then
-				theBody = StrUtil.getBlacket(body, "{", "}", pos)
-				ensuredJson = ensureJson(theBody)
+			startPos = 0
+			loop do
+				pos = body.index(aCondition, startPos)
+				if pos then
+					theBody = StrUtil.getBlacket(body, "{", "}", pos)
+					ensuredJson = ensureJson(theBody)
+					# update the next pos
+					startPos = pos + aCondition.length + theBody.length
 
-				theBp = {}
-				begin
-					theBp = JSON.parse(ensuredJson)
-				rescue => ex
+					theBp = {}
+					begin
+						theBp = JSON.parse(ensuredJson)
+					rescue => ex
 
-				end
-				if theBp.has_key?(DEF_NAME_IDENTIFIER) then
-					if theBp[DEF_NAME_IDENTIFIER] == targetDefaults then
-						result = theBp
-						break
 					end
+					if theBp.has_key?(DEF_NAME_IDENTIFIER) then
+						if theBp[DEF_NAME_IDENTIFIER] == targetDefaults then
+							result = theBp
+							break
+						end
+					end
+				else
+					# Not found
+					break
 				end
 			end
+			break if !result.empty?
 		end
 
 		return result
@@ -818,6 +827,9 @@ class AndroidBpParser < AndroidMakefileParser
 							theBp[key] = theBp[key] | value
 						elsif value.kind_of?(Hash) && theBp[key].kind_of?(Hash) then
 							theBp[key] = theBp[key].merge( value )
+						else
+							# Unexpect override case
+							theBp[key] = value
 						end
 					end
 				end
