@@ -809,6 +809,27 @@ class AndroidBpParser < AndroidMakefileParser
 		return result
 	end
 
+	def mergeBp(bp1, bp2)
+		result = bp1
+
+		bp2.each do |key,value|
+			if !result.has_key?(key) then
+				result[key] = value
+			else
+				if value.kind_of?(Array) && result[key].kind_of?(Array) then
+					result[key] = result[key] | value
+				elsif value.kind_of?(Hash) && result[key].kind_of?(Hash) then
+					result[key] = result[key].merge( value )
+				else
+					# Unexpect override case
+					result[key] = value
+				end
+			end
+		end
+
+		return result
+	end
+
 	def ensureDefaults(body, theBp)
 		result = theBp
 
@@ -818,28 +839,13 @@ class AndroidBpParser < AndroidMakefileParser
 				theDefault = getCorrespondingDefaults(body, aDefault)
 				theDefault.delete( DEF_NAME_IDENTIFIER )
 				theBp.delete( DEF_DEFAULTS_IDENTIFIER )
-				#theBp = theBp.merge( theDefault )
-				theDefault.each do |key,value|
-					if !theBp.has_key?(key) then
-						theBp[key] = value
-					else
-						if value.kind_of?(Array) && theBp[key].kind_of?(Array) then
-							theBp[key] = theBp[key] | value
-						elsif value.kind_of?(Hash) && theBp[key].kind_of?(Hash) then
-							theBp[key] = theBp[key].merge( value )
-						else
-							# Unexpect override case
-							theBp[key] = value
-						end
-					end
-				end
+				theBp = mergeBp( theBp, theDefault )
 			end
 			result = theBp
 		end
 
 		return result
 	end
-
 
 	def parseMakefile(makefileBody)
 		body = removeRemark(makefileBody).join(" ")
