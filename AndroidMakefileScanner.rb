@@ -835,10 +835,13 @@ class AndroidBpParser < AndroidMakefileParser
 
 		if theBp.has_key?(DEF_DEFAULTS_IDENTIFIER) then
 			defaults = theBp[DEF_DEFAULTS_IDENTIFIER]
+			theBp.delete( DEF_DEFAULTS_IDENTIFIER )
 			defaults.each do |aDefault|
 				theDefault = getCorrespondingDefaults(body, aDefault)
 				theDefault.delete( DEF_NAME_IDENTIFIER )
-				theBp.delete( DEF_DEFAULTS_IDENTIFIER )
+				if theDefault.has_key?(DEF_DEFAULTS_IDENTIFIER) then
+					theDefault = ensureDefaults(body, theDefault)
+				end
 				theBp = mergeBp( theBp, theDefault )
 			end
 			result = theBp
