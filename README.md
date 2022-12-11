@@ -40,13 +40,15 @@ export GCC_PATH=/opt/homebrew/bin/gcc-12
 * [x] Add include-path-for support
 * [x] Add no header(include) found case support
 * [x] Add Android.bp support
-  * [] Add defaults: support (super(base attributes) support) e.g. cc_defaults
+  * [x] Add defaults: support (super(base attributes) support) e.g. cc_defaults
 * [x] Add .so search from Android built out/ with Android.(mk|bp) parse result
 * [x] Add generate abi checker comparison output support (xml file per lib)
   * [x] Add stream support with STDOUT
   * [x] Add stream support with file with -p (--reportOutPath) support
   * [x] Add -r xml-perlib support
   * [x] Add --filterOutMatch support
+    * [x] Add multi thread file search
+    * [x] Add known exclusion e.g. "/obj/PACKAGING/target_files_intermediates/"
   * [x] Add -v version support
   * [x] Add unsupported cflags removal support
         * [x] Add for gcc
@@ -58,7 +60,8 @@ export GCC_PATH=/opt/homebrew/bin/gcc-12
 * [x] Add -m based scan (今は-m jarでもapkもsoもscanしているから)
 * [x] Add .apex support
 * [] Add build.gradle support
+* [x] Add sort
+* [x] Add ensure directory for reportOutPath if XmlPerLibReporter
 
 * [] Add AbiComplianceChecker
      * [x] Add concurrent execution
-     * 
