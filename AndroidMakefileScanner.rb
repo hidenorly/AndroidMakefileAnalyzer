@@ -709,7 +709,8 @@ class AndroidBpParser < AndroidMakefileParser
 		"cc_defaults",
 		"java_defaults",
 		"rust_defaults",
-		"apex_defaults"
+		"apex_defaults",
+		"_defaults" # wild card...
 	]
 	DEF_NATIVE_LIB_IDENTIFIER=[
 		"cc_library",
