@@ -16,15 +16,11 @@ require_relative "StrUtil"
 require_relative "TaskManager"
 
 class FileUtil
-	def self.ensureDirectory(path)
-		paths = path.to_s.split("/")
+	def self.ensureDirectory(targetPath)
+		paths = targetPath.to_s.split("/")
 		path = ""
 		paths.each do |aPath|
-			if !path.empty? then
-				path += "/"+aPath
-			else
-				path = aPath
-			end
+			path = path + ( path.end_with?("/") ? "" : "/" ) +aPath
 			begin
 				Dir.mkdir(path) if !Dir.exist?(path)
 			rescue => e
